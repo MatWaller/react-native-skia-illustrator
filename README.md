@@ -14,11 +14,10 @@ npm install react-native-skia-illustrator
 
 
 ```js
-import { multiply } from 'react-native-skia-illustrator';
+import { SkiaIllustrator } from 'react-native-skia-illustrator';
 
 // ...
 
-const result = multiply(3, 7);
 ```
 
 

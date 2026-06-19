@@ -84,3 +84,15 @@ android/generated
 
 # React Native Nitro Modules
 nitrogen/
+CLAUDE.md
+.claude/utilities/utilities.env
+.claude/utilities/create-monday-subtasks.py
+.gitignore
+.claude/skills/code-review-with-manual-tests/SKILL.md
+.gitignore
+.gitignore
+.claude/skills/compare-functional-to-class/SKILL.md
+.claude/memory/project_claude_md_location.md
+package.json
+example/src/TEST.jpg
+.gitignore

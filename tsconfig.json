@@ -4,6 +4,7 @@
     "paths": {
       "react-native-skia-illustrator": ["./src/index"]
     },
+    "allowJs": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "customConditions": [

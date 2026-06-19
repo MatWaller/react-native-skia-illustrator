@@ -11,6 +11,8 @@
         "!android/build",
         "src/*.ts",
         "src/*.tsx",
+        "src/*.js",
+        "src/*.jsx",
         "example/package.json",
         "example/android",
         "!example/android/.gradle",
