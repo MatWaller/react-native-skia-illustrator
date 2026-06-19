@@ -96,3 +96,4 @@ CLAUDE.md
 package.json
 example/src/TEST.jpg
 .gitignore
+example/src/gen_graphpaper.py

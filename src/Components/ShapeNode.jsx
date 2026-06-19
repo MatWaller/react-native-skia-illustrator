@@ -1,8 +1,21 @@
 import React from 'react';
 import { useDerivedValue } from 'react-native-reanimated';
-import { Group, Rect, Circle } from '@shopify/react-native-skia';
+import {
+  Group,
+  Rect,
+  Circle,
+  Text,
+  Skia,
+} from '@shopify/react-native-skia';
 
 export const ShapeNode = ({ shapeID, shapes }) => {
+  const font = React.useMemo(() => {
+    const fontMgr = Skia.FontMgr.System();
+    const familyName = fontMgr.getFamilyName(0);
+    const typeface = fontMgr.matchFamilyStyle(familyName, {});
+    return Skia.Font(typeface, 32);
+  }, []);
+
   const type = useDerivedValue(() => {
     const shape = shapes.value.find((s) => s.id === shapeID);
     return shape ? shape.type : 'rect';
@@ -38,6 +51,11 @@ export const ShapeNode = ({ shapeID, shapes }) => {
     return shape ? shape.colour : 'black';
   });
 
+  const content = useDerivedValue(() => {
+    const shape = shapes.value.find((s) => s.id === shapeID);
+    return shape ? shape.content : '';
+  });
+
   const origin = useDerivedValue(() => {
     const shape = shapes.value.find((s) => s.id === shapeID);
     return shape
@@ -60,8 +78,16 @@ export const ShapeNode = ({ shapeID, shapes }) => {
 
   if (type.value === 'circle') {
     return (
-      <Group origin={origin}>
+      <Group origin={origin} transform={transform}>
         <Circle cx={x} cy={y} r={radius} color={colour} />
+      </Group>
+    );
+  }
+
+  if (type.value === 'text') {
+    return (
+      <Group origin={origin} transform={transform}>
+        <Text x={x} y={y} text={content} color={colour} font={font} />
       </Group>
     );
   }

@@ -45,7 +45,21 @@ export const createSelectionGestures = ({
             selectedShapeStart.value = { x: shape.x, y: shape.y };
             break;
           }
-        } else {
+        } else if (shape.type === 'text') {
+          const textWidth = shape.content.length * 10; // Approximate width per character
+          const textHeight = 32; // Approximate height for the font size
+          if (
+            x >= shape.x &&
+            x <= shape.x + textWidth &&
+            y >= shape.y - textHeight &&
+            y <= shape.y
+          ) {
+            hitId = shape.id;
+            selectedShapeStart.value = { x: shape.x, y: shape.y };
+            break;
+          }
+        }
+        else {
           const rotationInRadians = (shape.rotation * Math.PI) / 180 || 0;
 
           const centerX = shape.x + shape.width / 2;

@@ -120,8 +120,20 @@ const SkiaIllustrator = React.forwardRef(
     // ]);
 
     // MW - Paint states.
-    
-    const shapes = useSharedValue([]);
+
+    const shapes = useSharedValue([
+        {
+          id: '1',
+          x: 50,
+          y: 50,
+          width: 100,
+          height: 100,
+          colour: 'black',
+          rotation: 0,
+          type: 'text',
+          content: 'Hello World',
+        },
+    ]);
     const [allStrokesPath, setAllStrokesPath] = useState([]);
 
     // MW - Stroke Settings
@@ -398,7 +410,13 @@ const SkiaIllustrator = React.forwardRef(
         getCurrentBrushSize: () => activeStrokeThickness.value,
         saveCanvasAsImage,
       }),
-      [currentTool, currentColour, allStrokesPath, resolvedCanvas, backgroundImage]
+      [
+        currentTool,
+        currentColour,
+        allStrokesPath,
+        resolvedCanvas,
+        backgroundImage,
+      ]
     );
 
     return (

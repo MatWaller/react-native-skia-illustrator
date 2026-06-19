@@ -15,13 +15,13 @@ import {
 } from 'react-native-safe-area-context';
 
 import { SkiaIllustrator } from 'react-native-skia-illustrator';
-import image from './TEST.jpg';
+import image from './graphpaper.png';
 import { useState, useEffect, useRef } from 'react';
 
 const TOOLS = [
-  { id: 'selection', label: 'Select', icon: '↖' },
-  { id: 'move', label: 'Move', icon: '⊕' },
+  { id: 'control', label: 'Control ', icon: '↖' },
   { id: 'paint', label: 'Paint', icon: '✏' },
+  { id: 'text', label: 'Text', icon: '🅰' },
   { id: 'eraser', label: 'Erase', icon: '⌫' },
   { id: 'shape', label: 'Shape', icon: '⬡' },
 ];
@@ -42,6 +42,11 @@ const BRUSH_SIZES = [
   { label: 'XL', size: 28 },
 ];
 
+const CONTROL_MODES = [
+  { id: 'move', label: 'Move' },
+  { id: 'selection', label: 'Select' },
+];
+
 const STATUS_BAR_H =
   Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 44;
 
@@ -49,16 +54,22 @@ function AppContent() {
   const insets = useSafeAreaInsets();
   const [base64String, setBase64String] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTool, setActiveTool] = useState('selection');
+  const [activeTool, setActiveTool] = useState('control');
   const [activeColor, setActiveColor] = useState('black');
   const [activeBrushIdx, setActiveBrushIdx] = useState(1); // M = 8
+  const [controlMode, setControlMode] = useState('selection'); // 'move' | 'selection'
   const skiaRef = useRef(null);
 
   const showPaintControls = activeTool === 'paint' || activeTool === 'eraser';
 
   const handleTool = (toolId) => {
     setActiveTool(toolId);
-    skiaRef.current?.setCurrentTool(toolId);
+    skiaRef.current?.setCurrentTool(toolId === 'control' ? controlMode : toolId);
+  };
+
+  const handleControlMode = (mode) => {
+    setControlMode(mode);
+    skiaRef.current?.setCurrentTool(mode);
   };
 
   const handleColor = (name) => {
@@ -117,19 +128,51 @@ function AppContent() {
 
           {/* ── Top HUD ─────────────────────────────────────────── */}
           <View style={styles.topHud} pointerEvents="box-none">
-            <View style={styles.toolPill}>
-              <Text style={styles.toolPillText}>
-                {activeMeta?.icon}
-                {'  '}
-                {activeMeta?.label}
-              </Text>
+            <View>
+              <View style={styles.toolPill}>
+                <Text style={styles.toolPillText}>
+                  {activeMeta?.icon}
+                  {'  '}
+                  {activeMeta?.label}
+                </Text>
+              </View>
+              <View style={{ height: 8 }} />
+              {activeTool === 'control' && (
+                <View style={styles.controlModeRow} pointerEvents="auto">
+                  {CONTROL_MODES.map(({ id, label }) => {
+                    const active = controlMode === id;
+                    return (
+                      <TouchableOpacity
+                        key={id}
+                        style={[
+                          styles.halftoolPill,
+                          active && styles.halftoolPillActive,
+                        ]}
+                        onPress={() => handleControlMode(id)}
+                      >
+                        <Text
+                          style={[
+                            styles.halftoolPillText,
+                            active && styles.halftoolPillTextActive,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
             </View>
             <View pointerEvents="auto">
               <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                <Text style={styles.btnText}>Save Image</Text> 
+                <Text style={styles.btnText}>Save Image</Text>
               </TouchableOpacity>
               <View style={{ width: 8, height: 10 }} />
-              <TouchableOpacity style={styles.clearBtn} onPress={() => skiaRef.current?.clearCanvas()}>
+              <TouchableOpacity
+                style={styles.clearBtn}
+                onPress={() => skiaRef.current?.clearCanvas()}
+              >
                 <Text style={styles.btnText}>Clear Canvas</Text>
               </TouchableOpacity>
             </View>
@@ -140,7 +183,14 @@ function AppContent() {
             style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}
             pointerEvents="box-none"
           >
-            <View style={{ flex: 1, minWidth: 500, maxWidth: 600, alignSelf: 'center' }} >
+            <View
+              style={{
+                flex: 1,
+                minWidth: 500,
+                maxWidth: 600,
+                alignSelf: 'center',
+              }}
+            >
               {/* Paint controls: visible for paint + eraser */}
               {showPaintControls && (
                 <View style={styles.paintControls} pointerEvents="auto">
@@ -251,6 +301,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  halftoolPill: {
+    backgroundColor: 'rgba(15,15,20,0.6)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  halftoolPillActive: {
+    backgroundColor: 'rgba(99,102,241,0.8)',
+  },
+  halftoolPillText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  halftoolPillTextActive: {
+    color: '#fff',
+  },
+  controlModeRow: {
+    flexDirection: 'row',
+    gap: 8,
   },
   clearBtn: {
     backgroundColor: 'rgba(239,68,68,0.88)',
