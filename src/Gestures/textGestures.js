@@ -59,6 +59,12 @@ export const createTextGestures = ({
       'worklet';
 
       const { x, y } = getCanvasPoint(event.x, event.y);
+
+      if (x < 0 || y < 0) {
+        // MW - Ignore taps that are outside the canvas bounds (can happen if the user taps the toolbar or status bar).
+        return;
+      }
+
       const currentShapes = shapes.value;
 
       for (let i = currentShapes.length - 1; i >= 0; i--) {

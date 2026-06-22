@@ -2,7 +2,14 @@
 import React, { useMemo, useEffect, useState } from 'react';
 
 // React Native Imports
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  useWindowDimensions,
+  TextInput,
+  Keyboard,
+  TouchableWithoutFeedback,
+} from 'react-native';
 
 // Gesture Handler Imports
 import {
@@ -67,7 +74,7 @@ const SkiaIllustrator = React.forwardRef(
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
     // MW - Tool States
-    const [currentTool, setCurrentTool] = React.useState('selection');
+    const [currentTool, setCurrentTool] = React.useState('control');
     const [currentColour, setCurrentColour] = React.useState('black');
 
     // MW - Notify the parent whenever the active tool changes (e.g. the text
@@ -108,6 +115,21 @@ const SkiaIllustrator = React.forwardRef(
 
     const [allStrokesPath, setAllStrokesPath] = useState([]);
 
+    // MW - Text editing state.
+    const [editingTextId, setEditingTextId] = useState(null);
+    const [editingContent, setEditingContent] = useState('');
+    const [editingScreenPos, setEditingScreenPos] = useState({
+      x: 0,
+      y: 0,
+      fontSize: 32,
+      colour: 'black',
+    });
+    // MW - Refs kept in sync with the screen-position state so the keyboard
+    // listener can read the latest value without stale-closure issues.
+    const editingScreenPosRef = React.useRef({ x: 0, y: 0, fontSize: 32, colour: 'black' });
+    const hasAdjustedForKeyboard = React.useRef(false);
+    const priorTranslateYRef = React.useRef(null);
+
     // MW - Undo/redo stacks. Stored in refs to avoid re-renders on every
     // mutation; historySize is the React state that drives canUndo/canRedo.
     const undoStack = React.useRef([]);
@@ -118,20 +140,27 @@ const SkiaIllustrator = React.forwardRef(
     // MW - Ref mirror of allStrokesPath so buildSnapshot doesn't need it as a
     // dependency — otherwise every new stroke would recreate gesture factories.
     const allStrokesRef = React.useRef(allStrokesPath);
-    useEffect(() => { allStrokesRef.current = allStrokesPath; }, [allStrokesPath]);
+    useEffect(() => {
+      allStrokesRef.current = allStrokesPath;
+    }, [allStrokesPath]);
 
     // MW - Serialise the current canvas state into a plain-JS snapshot. Skia
     // Path objects become SVG strings; shape objects are shallow-cloned.
     // Accepts shapesArray explicitly so callers can pass a pre-mutation copy.
-    const buildSnapshot = React.useCallback((shapesArray) => ({
-      shapes: shapesArray.map((s) => ({ ...s })),
-      strokes: allStrokesRef.current.map(({ path, colour, thickness, isEraser }) => ({
-        pathSVG: path.toSVGString(),
-        colour,
-        thickness,
-        isEraser,
-      })),
-    }), []);
+    const buildSnapshot = React.useCallback(
+      (shapesArray) => ({
+        shapes: shapesArray.map((s) => ({ ...s })),
+        strokes: allStrokesRef.current.map(
+          ({ path, colour, thickness, isEraser }) => ({
+            pathSVG: path.toSVGString(),
+            colour,
+            thickness,
+            isEraser,
+          })
+        ),
+      }),
+      []
+    );
 
     // MW - Push snapshot onto undo stack and clear redo (new branch invalidates
     // any existing redo history). Caps the stack at MAX_HISTORY entries.
@@ -214,47 +243,65 @@ const SkiaIllustrator = React.forwardRef(
     // reconstructed into live Skia Paths; shape objects are cloned fresh.
     // The active selection is dropped because the previously-selected shape
     // may not exist in the restored state.
-    const restoreSnapshot = React.useCallback((snapshot) => {
-      const restoredStrokes = snapshot.strokes.map(
-        ({ pathSVG, colour, thickness, isEraser }) => ({
-          path: Skia.Path.MakeFromSVGString(pathSVG) ?? Skia.Path.Make(),
-          colour,
-          thickness,
-          isEraser,
-        })
-      );
-      const clonedShapes = snapshot.shapes.map((s) => ({ ...s }));
-      shapes.value = clonedShapes;
-      setShapeList(clonedShapes);
-      notifyChange(shapes);
-      setAllStrokesPath(restoredStrokes);
-      selectedShapeId.value = null;
-      selectedShapeBounds.value = null;
-      selectedShapeRotation.value = 0;
-      notifySelectedShapeChange(null);
-    }, [shapes, selectedShapeId, selectedShapeBounds, selectedShapeRotation, notifySelectedShapeChange]);
+    const restoreSnapshot = React.useCallback(
+      (snapshot) => {
+        const restoredStrokes = snapshot.strokes.map(
+          ({ pathSVG, colour, thickness, isEraser }) => ({
+            path: Skia.Path.MakeFromSVGString(pathSVG) ?? Skia.Path.Make(),
+            colour,
+            thickness,
+            isEraser,
+          })
+        );
+        const clonedShapes = snapshot.shapes.map((s) => ({ ...s }));
+        shapes.value = clonedShapes;
+        setShapeList(clonedShapes);
+        notifyChange(shapes);
+        setAllStrokesPath(restoredStrokes);
+        selectedShapeId.value = null;
+        selectedShapeBounds.value = null;
+        selectedShapeRotation.value = 0;
+        notifySelectedShapeChange(null);
+      },
+      [
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        notifySelectedShapeChange,
+      ]
+    );
 
     const undo = React.useCallback(() => {
       if (!undoStack.current.length) return;
       redoStack.current.push(buildSnapshot(shapes.value));
       restoreSnapshot(undoStack.current.pop());
-      setHistorySize({ undo: undoStack.current.length, redo: redoStack.current.length });
+      setHistorySize({
+        undo: undoStack.current.length,
+        redo: redoStack.current.length,
+      });
     }, [buildSnapshot, restoreSnapshot, shapes]);
 
     const redo = React.useCallback(() => {
       if (!redoStack.current.length) return;
       undoStack.current.push(buildSnapshot(shapes.value));
       restoreSnapshot(redoStack.current.pop());
-      setHistorySize({ undo: undoStack.current.length, redo: redoStack.current.length });
+      setHistorySize({
+        undo: undoStack.current.length,
+        redo: redoStack.current.length,
+      });
     }, [buildSnapshot, restoreSnapshot, shapes]);
 
     // MW - Called via runOnJS from gesture onBegin handlers before a shape is
     // dragged or rotated. The shapesSnapshot is captured on the UI thread at
     // gesture-start time, before any onUpdate mutation fires, so it reliably
     // reflects the pre-drag position.
-    const onBeforeShapeMutation = React.useCallback((shapesSnapshot) => {
-      pushHistory(buildSnapshot(shapesSnapshot));
-    }, [pushHistory, buildSnapshot]);
+    const onBeforeShapeMutation = React.useCallback(
+      (shapesSnapshot) => {
+        pushHistory(buildSnapshot(shapesSnapshot));
+      },
+      [pushHistory, buildSnapshot]
+    );
 
     useEffect(() => {
       let targetWidth = canvasWidth;
@@ -291,6 +338,18 @@ const SkiaIllustrator = React.forwardRef(
       savedTranslateX,
       savedTranslateY,
     ]);
+
+    const clearSelection = React.useCallback(() => {
+      selectedShapeId.value = null;
+      selectedShapeStart.value = { x: 0, y: 0 };
+      selectedShapeBounds.value = null;
+      selectedShapeRotation.value = 0;
+      notifyChange(selectedShapeId);
+      notifyChange(selectedShapeStart);
+      notifyChange(selectedShapeBounds);
+      notifyChange(selectedShapeRotation);
+      notifySelectedShapeChange(null);
+    }, []);
 
     const viewportMatrix = useDerivedValue(() => {
       const matrix = Skia.Matrix();
@@ -391,17 +450,42 @@ const SkiaIllustrator = React.forwardRef(
       ]
     );
 
-    const addShape = React.useCallback((shape) => {
-      // MW - shapes.value already contains the new shape when this JS callback
-      // runs (it was added on the UI thread first). Exclude it to capture the
-      // pre-add state for undo.
-      pushHistory(buildSnapshot(shapes.value.filter((s) => s.id !== shape.id)));
-      setShapeList((prev) => [...prev, shape]);
-    }, [pushHistory, buildSnapshot, shapes]);
+    const addShape = React.useCallback(
+      (shape) => {
+        // MW - shapes.value already contains the new shape when this JS callback
+        // runs (it was added on the UI thread first). Exclude it to capture the
+        // pre-add state for undo.
+        pushHistory(
+          buildSnapshot(shapes.value.filter((s) => s.id !== shape.id))
+        );
+        setShapeList((prev) => [...prev, shape]);
+      },
+      [pushHistory, buildSnapshot, shapes]
+    );
 
-    const { controlPanGesture, controlPinchGesture, controlRotateGesture } = useMemo(
-      () =>
-        createControlGestures({
+    const { controlPanGesture, controlPinchGesture, controlRotateGesture } =
+      useMemo(
+        () =>
+          createControlGestures({
+            scale,
+            savedScale,
+            translateX,
+            translateY,
+            savedTranslateX,
+            savedTranslateY,
+            windowWidth,
+            windowHeight,
+            canvasWidth: resolvedCanvas.width,
+            canvasHeight: resolvedCanvas.height,
+            selectedShapeId,
+            selectedShapeStart,
+            selectedShapeBounds,
+            selectedShapeRotation,
+            shapes,
+            onSelectedShapeChange: notifySelectedShapeChange,
+            onBeforeShapeMutation,
+          }),
+        [
           scale,
           savedScale,
           translateX,
@@ -410,36 +494,17 @@ const SkiaIllustrator = React.forwardRef(
           savedTranslateY,
           windowWidth,
           windowHeight,
-          canvasWidth: resolvedCanvas.width,
-          canvasHeight: resolvedCanvas.height,
+          resolvedCanvas.width,
+          resolvedCanvas.height,
           selectedShapeId,
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
           shapes,
-          onSelectedShapeChange: notifySelectedShapeChange,
+          notifySelectedShapeChange,
           onBeforeShapeMutation,
-        }),
-      [
-        scale,
-        savedScale,
-        translateX,
-        translateY,
-        savedTranslateX,
-        savedTranslateY,
-        windowWidth,
-        windowHeight,
-        resolvedCanvas.width,
-        resolvedCanvas.height,
-        selectedShapeId,
-        selectedShapeStart,
-        selectedShapeBounds,
-        selectedShapeRotation,
-        shapes,
-        notifySelectedShapeChange,
-        onBeforeShapeMutation,
-      ]
-    );
+        ]
+      );
 
     const { tapPlaceShapeGesture } = useMemo(
       () =>
@@ -608,6 +673,165 @@ const SkiaIllustrator = React.forwardRef(
       ]
     );
 
+    // MW - Open the inline text editor for an existing text shape. Called via
+    // runOnJS from the double-tap worklet so Skia / React state access stays on
+    // the JS thread.
+    const startTextEdit = React.useCallback(
+      (shapeId) => {
+        const shape = shapes.value.find((s) => s.id === shapeId);
+        if (!shape || shape.type !== 'text') return;
+
+        // Snapshot before any edits so the whole session is one undo step.
+        pushHistory(buildSnapshot(shapes.value));
+
+        const currentScale = scale.value;
+        const tx = translateX.value;
+        const ty = translateY.value;
+
+        // Convert canvas baseline to screen space.
+        const screenX = shape.x * currentScale + tx;
+        const screenY = shape.y * currentScale + ty;
+        const screenFontSize = (shape.fontSize ?? 32) * currentScale;
+        const pos = {
+          x: screenX,
+          y: screenY,
+          fontSize: screenFontSize,
+          colour: shape.colour ?? 'black',
+        };
+
+        editingScreenPosRef.current = pos;
+        hasAdjustedForKeyboard.current = false;
+        priorTranslateYRef.current = null;
+
+        setEditingTextId(shapeId);
+        setEditingContent(shape.content ?? '');
+        setEditingScreenPos(pos);
+
+        // Select the shape so the selection outline stays visible.
+        const h = shape.height ?? shape.fontSize ?? 32;
+        selectedShapeId.value = shapeId;
+        selectedShapeBounds.value = {
+          x: shape.x,
+          y: shape.y - h,
+          width: shape.width ?? 0,
+          height: h,
+        };
+        selectedShapeRotation.value = shape.rotation ?? 0;
+        notifyChange(selectedShapeId);
+        notifyChange(selectedShapeBounds);
+        notifyChange(selectedShapeRotation);
+        notifySelectedShapeChange(shapeId);
+      },
+      [
+        shapes,
+        scale,
+        translateX,
+        translateY,
+        selectedShapeId,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        notifySelectedShapeChange,
+        pushHistory,
+        buildSnapshot,
+      ]
+    );
+
+    // MW - Live-update the text shape content as the user types so the canvas
+    // stays in sync without waiting for the editor to close.
+    const onEditingTextChange = React.useCallback(
+      (text) => {
+        setEditingContent(text);
+
+        const shapeIndex = shapes.value.findIndex((s) => s.id === editingTextId);
+        if (shapeIndex === -1) return;
+
+        const shape = shapes.value[shapeIndex];
+        const { width: textWidth, height: textHeight } = measureText(
+          text || ' ',
+          shape.fontSize ?? 32
+        );
+
+        const updatedShape = {
+          ...shape,
+          content: text,
+          width: textWidth,
+          height: textHeight,
+        };
+        const updatedShapes = [...shapes.value];
+        updatedShapes[shapeIndex] = updatedShape;
+        shapes.value = updatedShapes;
+        setShapeList(updatedShapes);
+        notifyChange(shapes);
+
+        selectedShapeBounds.value = {
+          x: updatedShape.x,
+          y: updatedShape.y - textHeight,
+          width: textWidth,
+          height: textHeight,
+        };
+        notifyChange(selectedShapeBounds);
+      },
+      [editingTextId, shapes, selectedShapeBounds]
+    );
+
+    // MW - Finalise editing: hide the overlay and restore any viewport shift
+    // that was applied to keep the text above the keyboard.
+    const commitTextEdit = React.useCallback(() => {
+      if (priorTranslateYRef.current !== null) {
+        translateY.value = priorTranslateYRef.current;
+        savedTranslateY.value = priorTranslateYRef.current;
+        priorTranslateYRef.current = null;
+      }
+      setEditingTextId(null);
+      Keyboard.dismiss();
+    }, [translateY, savedTranslateY]);
+
+    // MW - Double-tap on any text shape to open the inline editor. Defined
+    // here (not in a gesture factory) so it can call startTextEdit directly via
+    // runOnJS without threading the callback through every gesture file.
+    const doubleTapTextGesture = useMemo(
+      () =>
+        Gesture.Tap()
+          .numberOfTaps(2)
+          .onStart((event) => {
+            'worklet';
+            const currentScale = scale.value || 1;
+            const tx = translateX.value || 0;
+            const ty = translateY.value || 0;
+            const cx = (event.x - tx) / currentScale;
+            const cy = (event.y - ty) / currentScale;
+
+            const currentShapes = shapes.value;
+            for (let i = currentShapes.length - 1; i >= 0; i--) {
+              const shape = currentShapes[i];
+              if (shape.type !== 'text') continue;
+
+              const w = shape.width ?? 0;
+              const h = shape.height ?? shape.fontSize ?? 32;
+              const rot = ((shape.rotation ?? 0) * Math.PI) / 180;
+              const shapeCx = shape.x + w / 2;
+              const shapeCy = shape.y - h / 2;
+              const ddx = cx - shapeCx;
+              const ddy = cy - shapeCy;
+              const cosA = Math.cos(-rot);
+              const sinA = Math.sin(-rot);
+              const rx = ddx * cosA - ddy * sinA + shapeCx;
+              const ry = ddx * sinA + ddy * cosA + shapeCy;
+
+              if (
+                rx >= shape.x &&
+                rx <= shape.x + w &&
+                ry >= shape.y - h &&
+                ry <= shape.y
+              ) {
+                runOnJS(startTextEdit)(shape.id);
+                return;
+              }
+            }
+          }),
+      [scale, translateX, translateY, shapes, startTextEdit]
+    );
+
     // MW - Combined Move Tool Gestures (Pan + Pinch)
     const moveGestures = useMemo(
       () => Gesture.Simultaneous(panViewportGesture, pinchViewportGesture),
@@ -618,21 +842,26 @@ const SkiaIllustrator = React.forwardRef(
     const activeGestures = useMemo(() => {
       switch (currentTool) {
         case 'control':
+        case 'move':
           // MW - Single smart tool: drag on a shape moves it; drag on empty
           // canvas pans the viewport. Pinch always zooms. Rotate always
-          // rotates a selected shape.
+          // rotates a selected shape. Always use controlGestures here —
+          // they handle the shape-vs-viewport decision internally via
+          // isPanningViewport. The old selectedShapeId.value branch was
+          // unreliable because useMemo does not track shared-value mutations,
+          // so the viewport pan gestures were disabled on first load.
           return Gesture.Simultaneous(
             controlPanGesture,
             controlPinchGesture,
-            controlRotateGesture
+            controlRotateGesture,
+            doubleTapTextGesture
           );
-        case 'move':
-          return moveGestures;
         case 'selection':
           return Gesture.Simultaneous(
             panSelectionGesture,
             rotateSelectionGesture,
-            tapSelectionGesture
+            tapSelectionGesture,
+            doubleTapTextGesture
           );
         case 'paint':
         case 'eraser':
@@ -643,20 +872,21 @@ const SkiaIllustrator = React.forwardRef(
           return Gesture.Simultaneous(
             tapPlaceShapeGesture,
             panSelectionGesture,
-            rotateSelectionGesture
+            rotateSelectionGesture,
+            doubleTapTextGesture
           );
         case 'text':
           return Gesture.Simultaneous(
             placeTextGesture,
             panSelectionGesture,
-            rotateSelectionGesture
+            rotateSelectionGesture,
+            doubleTapTextGesture
           );
         default:
           return Gesture.Exclusive();
       }
     }, [
       currentTool,
-      moveGestures,
       controlPanGesture,
       controlPinchGesture,
       controlRotateGesture,
@@ -666,6 +896,7 @@ const SkiaIllustrator = React.forwardRef(
       paintGesture,
       placeTextGesture,
       tapPlaceShapeGesture,
+      doubleTapTextGesture,
     ]);
 
     const paperRect = rect(0, 0, resolvedCanvas.width, resolvedCanvas.height);
@@ -717,7 +948,64 @@ const SkiaIllustrator = React.forwardRef(
       selectedShapeRotation.value = 0;
       notifyChange(shapes);
       notifySelectedShapeChange(null);
-    }, [shapes, selectedShapeId, selectedShapeStart, selectedShapeBounds, selectedShapeRotation, pushHistory, buildSnapshot, notifySelectedShapeChange]);
+    }, [
+      shapes,
+      selectedShapeId,
+      selectedShapeStart,
+      selectedShapeBounds,
+      selectedShapeRotation,
+      pushHistory,
+      buildSnapshot,
+      notifySelectedShapeChange,
+    ]);
+
+    // MW - When the keyboard appears during text editing, shift the viewport so
+    // the edited text stays visible above the keyboard. Restore the shift when
+    // editing ends (commitTextEdit also does this, but the hide listener covers
+    // the case where the OS dismisses the keyboard independently).
+    useEffect(() => {
+      if (!editingTextId) {
+        hasAdjustedForKeyboard.current = false;
+        return;
+      }
+
+      const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+        if (hasAdjustedForKeyboard.current) return;
+        hasAdjustedForKeyboard.current = true;
+
+        const keyboardHeight = e.endCoordinates.height;
+        const keyboardTop = windowHeight - keyboardHeight;
+        // 40 px clearance above the keyboard for the text + cursor.
+        const textBottom = editingScreenPosRef.current.y + 20;
+
+        if (textBottom > keyboardTop - 40) {
+          const offset = textBottom - (keyboardTop - 40);
+          priorTranslateYRef.current = translateY.value;
+          translateY.value -= offset;
+          savedTranslateY.value = translateY.value;
+
+          const updatedPos = {
+            ...editingScreenPosRef.current,
+            y: editingScreenPosRef.current.y - offset,
+          };
+          editingScreenPosRef.current = updatedPos;
+          setEditingScreenPos(updatedPos);
+        }
+      });
+
+      const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+        if (priorTranslateYRef.current !== null) {
+          translateY.value = priorTranslateYRef.current;
+          savedTranslateY.value = priorTranslateYRef.current;
+          priorTranslateYRef.current = null;
+        }
+      });
+
+      return () => {
+        showSub.remove();
+        hideSub.remove();
+      };
+    }, [editingTextId, windowHeight, translateY, savedTranslateY]);
 
     const setColour = (colour) => {
       setCurrentColour(colour);
@@ -757,8 +1045,60 @@ const SkiaIllustrator = React.forwardRef(
     };
 
     const setBrushSize = (size) => {
-      'worklet';
       activeStrokeThickness.value = size;
+
+      const shapeId = selectedShapeId.value;
+      if (!shapeId) return;
+
+      const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+      if (shapeIndex === -1) return;
+
+      const shape = shapes.value[shapeIndex];
+      // MW - Text size is handled by setFontSize, not the brush slider.
+      if (shape.type === 'text') return;
+
+      pushHistory(buildSnapshot(shapes.value));
+
+      // MW - Map the slider value to a canvas size using the same * 5 factor
+      // used when placing new shapes (slider range 2–40 → canvas size 10–200).
+      const newSize = size * 5;
+
+      let updatedShape;
+      if (shape.type === 'circle') {
+        updatedShape = { ...shape, radius: newSize / 2 };
+      } else {
+        // MW - Scale width/height proportionally to preserve the shape's aspect ratio.
+        const aspect = shape.width > 0 ? shape.height / shape.width : 1;
+        updatedShape = {
+          ...shape,
+          width: newSize,
+          height: newSize * aspect,
+        };
+      }
+
+      const updatedShapes = [...shapes.value];
+      updatedShapes[shapeIndex] = updatedShape;
+      shapes.value = updatedShapes;
+      setShapeList(updatedShapes);
+      notifyChange(shapes);
+
+      // MW - Keep the selection outline in sync with the new dimensions.
+      if (updatedShape.type === 'circle') {
+        selectedShapeBounds.value = {
+          x: updatedShape.x - updatedShape.radius,
+          y: updatedShape.y - updatedShape.radius,
+          width: updatedShape.radius * 2,
+          height: updatedShape.radius * 2,
+        };
+      } else {
+        selectedShapeBounds.value = {
+          x: updatedShape.x,
+          y: updatedShape.y,
+          width: updatedShape.width,
+          height: updatedShape.height,
+        };
+      }
+      notifyChange(selectedShapeBounds);
     };
 
     const setFontSize = (size) => {
@@ -912,6 +1252,7 @@ const SkiaIllustrator = React.forwardRef(
         redo,
         canUndo: () => undoStack.current.length > 0,
         canRedo: () => redoStack.current.length > 0,
+        clearSelection: () => clearSelection(),
       }),
       [
         currentTool,
@@ -1033,6 +1374,40 @@ const SkiaIllustrator = React.forwardRef(
             </Canvas>
           </View>
         </GestureDetector>
+        {editingTextId != null && (
+          <>
+            {/* MW - Fullscreen backdrop: tapping outside the TextInput commits
+                the edit and dismisses the keyboard. Rendered below the
+                TextInput in z-order so the input itself still captures its
+                own touch events. */}
+            <TouchableWithoutFeedback onPress={commitTextEdit}>
+              <View style={StyleSheet.absoluteFill} />
+            </TouchableWithoutFeedback>
+            <TextInput
+              autoFocus
+              style={{
+                position: 'absolute',
+                left: editingScreenPos.x,
+                // Text draws from its baseline in Skia; the top of the box is
+                // one font-height above that.
+                top: editingScreenPos.y - editingScreenPos.fontSize,
+                fontSize: editingScreenPos.fontSize,
+                color: editingScreenPos.colour,
+                padding: 0,
+                margin: 0,
+                minWidth: 80,
+                backgroundColor: 'transparent',
+              }}
+              value={editingContent}
+              onChangeText={onEditingTextChange}
+              onBlur={commitTextEdit}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={commitTextEdit}
+            />
+          </>
+        )}
       </GestureHandlerRootView>
     );
   }

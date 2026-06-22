@@ -1,6 +1,6 @@
 import { Platform, StatusBar } from 'react-native';
 import {
-  faArrowPointer,
+  faHandPointDown,
   faArrowUp,
   faCircle,
   faDiamond,
@@ -17,7 +17,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 
 export const TOOLS = [
-  { id: 'control', label: 'Control', icon: faArrowPointer },
+  { id: 'control', label: 'Control', icon: faHandPointDown },
   { id: 'paint', label: 'Paint', icon: faPen },
   { id: 'text', label: 'Text', icon: faFont },
   { id: 'eraser', label: 'Erase', icon: faEraser },
@@ -52,11 +52,6 @@ export const SHAPES = [
   { id: 'diamond', label: 'Diamond', icon: faDiamond },
   { id: 'check', label: 'Check', icon: faCheck },
   { id: 'cross', label: 'Cross', icon: faXmark },
-];
-
-export const CONTROL_MODES = [
-  { id: 'move', label: 'Move' },
-  { id: 'selection', label: 'Select' },
 ];
 
 export const BRUSH_MIN = 2;

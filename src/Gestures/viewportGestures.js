@@ -38,7 +38,7 @@ export const createViewportGestures = ({
   };
 
   const panViewportGesture = Gesture.Pan()
-    .enabled(currentTool === 'move')
+    .enabled(currentTool === 'move' || currentTool === 'selection')
     .onUpdate((event) => {
       'worklet';
       translateX.value = savedTranslateX.value + event.translationX;
@@ -60,7 +60,7 @@ export const createViewportGestures = ({
     });
 
   const pinchViewportGesture = Gesture.Pinch()
-    .enabled(currentTool === 'move')
+    .enabled(currentTool === 'move' || currentTool === 'selection')
     .onUpdate((event) => {
       'worklet';
       let nextScale = savedScale.value * event.scale;

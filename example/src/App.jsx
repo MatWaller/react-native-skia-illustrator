@@ -22,22 +22,14 @@ function AppContent() {
   const [brushSize, setBrushSize] = useState(8);
   const [fontSize, setFontSize] = useState(32);
   const [activeShape, setActiveShape] = useState('rect');
-  const [controlMode, setControlMode] = useState('selection');
   const [hasSelectedShape, setHasSelectedShape] = useState(false);
   const skiaRef = useRef(null);
 
   const activeMeta = TOOLS.find((tool) => tool.id === activeTool);
 
   const handleTool = (toolId) => {
-    setActiveTool(toolId);
-    skiaRef.current?.setCurrentTool(
-      toolId === 'control' ? controlMode : toolId
-    );
-  };
-
-  const handleControlMode = (mode) => {
-    setControlMode(mode);
-    skiaRef.current?.setCurrentTool(mode);
+    skiaRef.current?.setCurrentTool(toolId);
+    skiaRef.current?.clearSelection();
   };
 
   const handleColor = ({ name, hex }) => {
@@ -61,13 +53,11 @@ function AppContent() {
   };
 
   const handleToolChange = (tool) => {
-    if (tool === 'selection' || tool === 'move') {
-      setControlMode(tool);
+    if (tool === 'selection' || tool === 'move' || tool === 'control') {
       setActiveTool('control');
       return;
-    } else {
-      setActiveTool(tool);
     }
+    setActiveTool(tool);
   };
 
   const handleSave = async () => {
@@ -120,8 +110,6 @@ function AppContent() {
           <TopHud
             activeMeta={activeMeta}
             activeTool={activeTool}
-            controlMode={controlMode}
-            onControlMode={handleControlMode}
             onSave={handleSave}
             onClear={() => skiaRef.current?.clearCanvas()}
             onDeleteSelectedShape={() => skiaRef.current?.deleteSelectedShape()}

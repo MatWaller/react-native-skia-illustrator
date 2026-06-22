@@ -117,7 +117,7 @@ export const createSelectionGestures = ({
   };
 
   const tapSelectionGesture = Gesture.Tap()
-    .enabled(currentTool === 'selection')
+    .enabled(currentTool === 'selection' || currentTool === 'move')
     .onStart((event) => {
       'worklet';
 

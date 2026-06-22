@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
-import { CONTROL_MODES, STATUS_BAR_H } from '../constants';
+import { STATUS_BAR_H } from '../constants';
 
 export function TopHud({
   activeMeta,
   activeTool,
-  controlMode,
-  onControlMode,
   onSave,
   onClear,
   onDeleteSelectedShape,
@@ -19,10 +17,9 @@ export function TopHud({
     hasSelectedShape &&
     (activeTool === 'shape' ||
       activeTool === 'text' ||
-      (activeTool === 'control' && controlMode === 'selection'));
-  const hasToolOptions = activeTool === 'control' || canDeleteSelectedShape;
+      activeTool === 'control');
+  const hasToolOptions = canDeleteSelectedShape;
   const toolOptionsExpanded = hasToolOptions && isExpanded;
-  const showControlOptions = toolOptionsExpanded;
   const showDeleteOption = toolOptionsExpanded && canDeleteSelectedShape;
 
   useEffect(() => {
@@ -54,41 +51,16 @@ export function TopHud({
             />
           )}
         </TouchableOpacity>
-        {showControlOptions && (
+        {showDeleteOption && (
           <View style={styles.optionsPanel} pointerEvents="auto">
-            {activeTool === 'control' && (
-              <View style={styles.optionsRow}>
-                {CONTROL_MODES.map(({ id, label }) => {
-                  const active = controlMode === id;
-                  return (
-                    <TouchableOpacity
-                      key={id}
-                      style={[styles.modePill, active && styles.modePillActive]}
-                      onPress={() => onControlMode(id)}
-                    >
-                      <Text
-                        style={[
-                          styles.modePillText,
-                          active && styles.modePillTextActive,
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-            {showDeleteOption && (
-              <View style={styles.deleteRow}>
-                <TouchableOpacity
-                  style={[styles.modePill, styles.clearBtn]}
-                  onPress={onDeleteSelectedShape}
-                >
-                  <Text style={styles.btnText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            <View style={styles.deleteRow}>
+              <TouchableOpacity
+                style={[styles.modePill, styles.clearBtn]}
+                onPress={onDeleteSelectedShape}
+              >
+                <Text style={styles.btnText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>

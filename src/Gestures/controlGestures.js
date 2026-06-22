@@ -1,6 +1,6 @@
 import { Gesture } from 'react-native-gesture-handler';
 import { notifyChange } from '@shopify/react-native-skia';
-import { runOnJS } from 'react-native-reanimated';
+import { makeMutable, runOnJS } from 'react-native-reanimated';
 
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 5;
@@ -125,8 +125,8 @@ export const createControlGestures = ({
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   };
 
-  // MW - Smart pan: if the touch begins on a shape, drag that shape.
-  // If it begins on empty canvas, pan the viewport instead.
+  const isPanningViewport = makeMutable(false);
+
   const controlPanGesture = Gesture.Pan()
     .minDistance(0)
     .maxPointers(1)
@@ -147,11 +147,15 @@ export const createControlGestures = ({
         }
       }
 
-      if (!hitId) {
-        // Viewport pan — save current translate as the drag origin.
+      if (hitId) {
+        // Touching a shape — set up shape drag.
+        isPanningViewport.value = false;
+      } else if (selectedShapeId.value == null) {
+        isPanningViewport.value = true;
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
-        selectedShapeId.value = null;
+      } else {
+        isPanningViewport.value = false;
         selectedShapeBounds.value = { x: 0, y: 0, width: 0, height: 0 };
         selectedShapeRotation.value = 0;
       }
@@ -183,7 +187,7 @@ export const createControlGestures = ({
         notifyChange(shapes);
         notifyChange(selectedShapeBounds);
         notifyChange(selectedShapeRotation);
-      } else {
+      } else if (isPanningViewport.value) {
         // Viewport pan
         const tx = savedTranslateX.value + event.translationX;
         const ty = savedTranslateY.value + event.translationY;
@@ -194,15 +198,18 @@ export const createControlGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      if (!selectedShapeId.value) {
+      if (isPanningViewport.value) {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
       }
+      isPanningViewport.value = false;
     });
 
   const controlPinchGesture = Gesture.Pinch()
     .onUpdate((event) => {
       'worklet';
+      // MW - When a shape is selected, pinch should not zoom/pan the viewport.
+      if (selectedShapeId.value != null) return;
       let nextScale = savedScale.value * event.scale;
       nextScale = Math.min(Math.max(nextScale, MIN_SCALE), MAX_SCALE);
       const focalX = event.focalX;
@@ -218,6 +225,7 @@ export const createControlGestures = ({
     })
     .onEnd(() => {
       'worklet';
+      if (selectedShapeId.value != null) return;
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;

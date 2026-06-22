@@ -119,6 +119,11 @@ export const createShapeGestures = ({
       // MW - Get canvas coordinates from the tap event and add a new shape at that point.
       const { x, y } = getCanvasPoint(event.x, event.y);
 
+      if (x < 0 || y < 0) {
+        // MW - Ignore taps that are outside the canvas bounds (can happen if the user taps the toolbar or status bar).
+        return;
+      }
+
       const currentShapes = shapes.value;
 
       for (let i = currentShapes.length - 1; i >= 0; i--) {
