@@ -11,6 +11,7 @@ export function TopHud({
   onClear,
   onDeleteSelectedShape,
   hasSelectedShape,
+  topInset,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const canDeleteSelectedShape =
@@ -27,7 +28,10 @@ export function TopHud({
   }, [activeTool]);
 
   return (
-    <View style={styles.topHud} pointerEvents="box-none">
+    <View
+      style={[styles.topHud, { top: topInset + 8 }]}
+      pointerEvents="box-none"
+    >
       <View style={styles.toolArea} pointerEvents="box-none">
         <TouchableOpacity
           style={[

@@ -28,8 +28,14 @@ export const createControlGestures = ({
   const clampTranslations = (x, y, s) => {
     'worklet';
     return {
-      x: Math.min(Math.max(x, PADDING - canvasWidth * s), windowWidth - PADDING),
-      y: Math.min(Math.max(y, PADDING - canvasHeight * s), windowHeight - PADDING),
+      x: Math.min(
+        Math.max(x, PADDING - canvasWidth * s),
+        windowWidth - PADDING
+      ),
+      y: Math.min(
+        Math.max(y, PADDING - canvasHeight * s),
+        windowHeight - PADDING
+      ),
     };
   };
 
@@ -61,7 +67,12 @@ export const createControlGestures = ({
     const ty = py - cy;
     const rx = tx * cosA - ty * sinA + cx;
     const ry = tx * sinA + ty * cosA + cy;
-    return rx >= shape.x && rx <= shape.x + shape.width && ry >= shape.y && ry <= shape.y + shape.height;
+    return (
+      rx >= shape.x &&
+      rx <= shape.x + shape.width &&
+      ry >= shape.y &&
+      ry <= shape.y + shape.height
+    );
   };
 
   const hitTestLine = (shape, px, py) => {
@@ -97,7 +108,9 @@ export const createControlGestures = ({
     const ty = py - cy;
     const rx = tx * cosA - ty * sinA + cx;
     const ry = tx * sinA + ty * cosA + cy;
-    return rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y;
+    return (
+      rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y
+    );
   };
 
   const hitTestShape = (shape, px, py) => {
@@ -142,7 +155,8 @@ export const createControlGestures = ({
           hitId = shape.id;
           selectedShapeStart.value = { x: shape.x, y: shape.y };
           selectedShapeBounds.value = getShapeBounds(shape);
-          selectedShapeRotation.value = shape.type === 'circle' ? 0 : (shape.rotation || 0);
+          selectedShapeRotation.value =
+            shape.type === 'circle' ? 0 : shape.rotation || 0;
           break;
         }
       }
@@ -172,8 +186,10 @@ export const createControlGestures = ({
       'worklet';
       if (selectedShapeId.value) {
         // Shape drag
-        const newX = selectedShapeStart.value.x + event.translationX / scale.value;
-        const newY = selectedShapeStart.value.y + event.translationY / scale.value;
+        const newX =
+          selectedShapeStart.value.x + event.translationX / scale.value;
+        const newY =
+          selectedShapeStart.value.y + event.translationY / scale.value;
         const currentShapes = shapes.value;
         for (let i = 0; i < currentShapes.length; i++) {
           if (currentShapes[i].id === selectedShapeId.value) {
@@ -206,6 +222,13 @@ export const createControlGestures = ({
     });
 
   const controlPinchGesture = Gesture.Pinch()
+    .onBegin(() => {
+      'worklet';
+      if (selectedShapeId.value != null) return;
+      savedScale.value = scale.value;
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    })
     .onUpdate((event) => {
       'worklet';
       // MW - When a shape is selected, pinch should not zoom/pan the viewport.
@@ -215,9 +238,11 @@ export const createControlGestures = ({
       const focalX = event.focalX;
       const focalY = event.focalY;
       const targetX =
-        focalX - (focalX - savedTranslateX.value) * (nextScale / savedScale.value);
+        focalX -
+        (focalX - savedTranslateX.value) * (nextScale / savedScale.value);
       const targetY =
-        focalY - (focalY - savedTranslateY.value) * (nextScale / savedScale.value);
+        focalY -
+        (focalY - savedTranslateY.value) * (nextScale / savedScale.value);
       const clamped = clampTranslations(targetX, targetY, nextScale);
       scale.value = nextScale;
       translateX.value = clamped.x;

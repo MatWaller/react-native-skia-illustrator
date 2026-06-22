@@ -48,7 +48,12 @@ export const createShapeGestures = ({
     const sinA = Math.sin(-rotationInRadians);
     const rx = tx * cosA - ty * sinA + centerX;
     const ry = tx * sinA + ty * cosA + centerY;
-    return rx >= shape.x && rx <= shape.x + shape.width && ry >= shape.y && ry <= shape.y + shape.height;
+    return (
+      rx >= shape.x &&
+      rx <= shape.x + shape.width &&
+      ry >= shape.y &&
+      ry <= shape.y + shape.height
+    );
   };
 
   const hitTestLine = (shape, px, py) => {
@@ -84,7 +89,9 @@ export const createShapeGestures = ({
     const sinA = Math.sin(-rotationInRadians);
     const rx = tx * cosA - ty * sinA + centerX;
     const ry = tx * sinA + ty * cosA + centerY;
-    return rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y;
+    return (
+      rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y
+    );
   };
 
   const hitTestShape = (shape, px, py) => {
@@ -132,7 +139,8 @@ export const createShapeGestures = ({
           selectedShapeId.value = shape.id;
           selectedShapeStart.value = { x: shape.x, y: shape.y };
           selectedShapeBounds.value = getShapeBounds(shape);
-          selectedShapeRotation.value = shape.type === 'circle' ? 0 : (shape.rotation || 0);
+          selectedShapeRotation.value =
+            shape.type === 'circle' ? 0 : shape.rotation || 0;
           notifyChange(selectedShapeId);
           notifyChange(selectedShapeBounds);
           notifyChange(selectedShapeRotation);
@@ -153,32 +161,112 @@ export const createShapeGestures = ({
 
       switch (shapeToolType) {
         case 'rect':
-          newShape = { id: `rect-${ts}`, type: 'rect', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `rect-${ts}`,
+            type: 'rect',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'circle':
-          newShape = { id: `circle-${ts}`, type: 'circle', x, y, radius: size / 2, colour, rotation: 0 };
+          newShape = {
+            id: `circle-${ts}`,
+            type: 'circle',
+            x,
+            y,
+            radius: size / 2,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'line':
           // Line extends horizontally; height:0 keeps it flat until the user rotates it.
-          newShape = { id: `line-${ts}`, type: 'line', x, y, width: size, height: 0, colour, rotation: 0 };
+          newShape = {
+            id: `line-${ts}`,
+            type: 'line',
+            x,
+            y,
+            width: size,
+            height: 0,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'triangle':
-          newShape = { id: `triangle-${ts}`, type: 'triangle', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `triangle-${ts}`,
+            type: 'triangle',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'arrow':
-          newShape = { id: `arrow-${ts}`, type: 'arrow', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `arrow-${ts}`,
+            type: 'arrow',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'star':
-          newShape = { id: `star-${ts}`, type: 'star', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `star-${ts}`,
+            type: 'star',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'diamond':
-          newShape = { id: `diamond-${ts}`, type: 'diamond', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `diamond-${ts}`,
+            type: 'diamond',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'cross':
-          newShape = { id: `cross-${ts}`, type: 'cross', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `cross-${ts}`,
+            type: 'cross',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
         case 'check':
-          newShape = { id: `check-${ts}`, type: 'check', x, y, width: size, height: size, colour, rotation: 0 };
+          newShape = {
+            id: `check-${ts}`,
+            type: 'check',
+            x,
+            y,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+          };
           break;
       }
 

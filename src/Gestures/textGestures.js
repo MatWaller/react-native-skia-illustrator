@@ -13,7 +13,7 @@ export const createTextGestures = ({
   selectedShapeRotation,
   shapes,
   onSelectedShapeChange,
-  addText,  
+  addText,
 }) => {
   const getCanvasPoint = (x, y) => {
     'worklet';

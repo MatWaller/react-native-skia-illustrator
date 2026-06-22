@@ -61,6 +61,12 @@ export const createViewportGestures = ({
 
   const pinchViewportGesture = Gesture.Pinch()
     .enabled(currentTool === 'move' || currentTool === 'selection')
+    .onBegin(() => {
+      'worklet';
+      savedScale.value = scale.value;
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    })
     .onUpdate((event) => {
       'worklet';
       let nextScale = savedScale.value * event.scale;

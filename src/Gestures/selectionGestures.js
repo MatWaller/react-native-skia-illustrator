@@ -88,7 +88,9 @@ export const createSelectionGestures = ({
     const sinA = Math.sin(-rotationInRadians);
     const rx = tx * cosA - ty * sinA + centerX;
     const ry = tx * sinA + ty * cosA + centerY;
-    return rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y;
+    return (
+      rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y
+    );
   };
 
   const hitTestShape = (shape, px, py) => {
@@ -154,7 +156,8 @@ export const createSelectionGestures = ({
           hitId = shape.id;
           selectedShapeStart.value = { x: shape.x, y: shape.y };
           selectedShapeBounds.value = getShapeBounds(shape);
-          selectedShapeRotation.value = shape.type === 'circle' ? 0 : (shape.rotation || 0);
+          selectedShapeRotation.value =
+            shape.type === 'circle' ? 0 : shape.rotation || 0;
           break;
         }
       }

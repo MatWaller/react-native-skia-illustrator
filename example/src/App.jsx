@@ -1,7 +1,13 @@
 /* global btoa */
 
 import { useState, useEffect, useRef } from 'react';
-import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  StatusBar,
+  StyleSheet,
+  View,
+} from 'react-native';
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -100,6 +106,11 @@ function AppContent() {
         />
       ) : (
         <>
+          <StatusBar
+            barStyle="dark-content"
+            backgroundColor="#dfdfdf"
+            hidden={true}
+          />
           <SkiaIllustrator
             ref={skiaRef}
             imageSource={base64String}
@@ -113,6 +124,7 @@ function AppContent() {
             onSave={handleSave}
             onClear={() => skiaRef.current?.clearCanvas()}
             onDeleteSelectedShape={() => skiaRef.current?.deleteSelectedShape()}
+            topInset={insets.top}
             hasSelectedShape={hasSelectedShape}
           />
           <BottomControls

@@ -44,7 +44,6 @@ import {
   Rect,
   Box,
   BoxShadow,
-  rrect,
   rect,
   notifyChange,
   PaintStyle,
@@ -117,6 +116,9 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Text editing state.
     const [editingTextId, setEditingTextId] = useState(null);
+    // MW - Shared-value mirror of editingTextId so worklets can check whether
+    // text is being edited without crossing the JS/UI-thread boundary.
+    const editingTextIdShared = useSharedValue(null);
     const [editingContent, setEditingContent] = useState('');
     const [editingScreenPos, setEditingScreenPos] = useState({
       x: 0,
@@ -124,6 +126,11 @@ const SkiaIllustrator = React.forwardRef(
       fontSize: 32,
       colour: 'black',
     });
+    // MW - Keep the shared-value mirror in sync whenever editingTextId changes.
+    useEffect(() => {
+      editingTextIdShared.value = editingTextId;
+    }, [editingTextId, editingTextIdShared]);
+
     // MW - Refs kept in sync with the screen-position state so the keyboard
     // listener can read the latest value without stale-closure issues.
     const editingScreenPosRef = React.useRef({ x: 0, y: 0, fontSize: 32, colour: 'black' });
@@ -673,9 +680,6 @@ const SkiaIllustrator = React.forwardRef(
       ]
     );
 
-    // MW - Open the inline text editor for an existing text shape. Called via
-    // runOnJS from the double-tap worklet so Skia / React state access stays on
-    // the JS thread.
     const startTextEdit = React.useCallback(
       (shapeId) => {
         const shape = shapes.value.find((s) => s.id === shapeId);
@@ -832,10 +836,57 @@ const SkiaIllustrator = React.forwardRef(
       [scale, translateX, translateY, shapes, startTextEdit]
     );
 
-    // MW - Combined Move Tool Gestures (Pan + Pinch)
-    const moveGestures = useMemo(
-      () => Gesture.Simultaneous(panViewportGesture, pinchViewportGesture),
-      [panViewportGesture, pinchViewportGesture]
+    // MW - Tap anywhere that is NOT the currently-edited text element to
+    // dismiss the keyboard and commit the active text edit. This runs
+    // simultaneously with every tool's gesture set so it fires regardless of
+    // which tool is active. It is a no-op when no text is being edited
+    // (editingTextIdShared.value === null).
+    const dismissKeyboardGesture = useMemo(
+      () =>
+        Gesture.Tap().onStart((event) => {
+          'worklet';
+          if (!editingTextIdShared.value) return;
+
+          const currentScale = scale.value || 1;
+          const tx = translateX.value || 0;
+          const ty = translateY.value || 0;
+          const cx = (event.x - tx) / currentScale;
+          const cy = (event.y - ty) / currentScale;
+
+          const currentShapes = shapes.value;
+          const editingId = editingTextIdShared.value;
+
+          for (let i = currentShapes.length - 1; i >= 0; i--) {
+            const shape = currentShapes[i];
+            if (shape.id !== editingId || shape.type !== 'text') continue;
+
+            const w = shape.width ?? 0;
+            const h = shape.height ?? shape.fontSize ?? 32;
+            const rot = ((shape.rotation ?? 0) * Math.PI) / 180;
+            const shapeCx = shape.x + w / 2;
+            const shapeCy = shape.y - h / 2;
+            const ddx = cx - shapeCx;
+            const ddy = cy - shapeCy;
+            const cosA = Math.cos(-rot);
+            const sinA = Math.sin(-rot);
+            const rx = ddx * cosA - ddy * sinA + shapeCx;
+            const ry = ddx * sinA + ddy * cosA + shapeCy;
+
+            if (
+              rx >= shape.x &&
+              rx <= shape.x + w &&
+              ry >= shape.y - h &&
+              ry <= shape.y
+            ) {
+              return; // Tapping on the text being edited — keep focus
+            }
+          }
+
+          // Tap landed outside the editing text element — commit and dismiss
+          runOnJS(commitTextEdit)();
+        }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [scale, translateX, translateY, shapes, editingTextIdShared, commitTextEdit]
     );
 
     // MW - Active Gestures based on current tool.
@@ -854,18 +905,20 @@ const SkiaIllustrator = React.forwardRef(
             controlPanGesture,
             controlPinchGesture,
             controlRotateGesture,
-            doubleTapTextGesture
+            doubleTapTextGesture,
+            dismissKeyboardGesture
           );
         case 'selection':
           return Gesture.Simultaneous(
             panSelectionGesture,
             rotateSelectionGesture,
             tapSelectionGesture,
-            doubleTapTextGesture
+            doubleTapTextGesture,
+            dismissKeyboardGesture
           );
         case 'paint':
         case 'eraser':
-          return paintGesture;
+          return Gesture.Simultaneous(paintGesture, dismissKeyboardGesture);
         case 'shape':
           // MW - While in shape mode a selected shape can still be moved or
           // rotated without switching tools.
@@ -873,14 +926,16 @@ const SkiaIllustrator = React.forwardRef(
             tapPlaceShapeGesture,
             panSelectionGesture,
             rotateSelectionGesture,
-            doubleTapTextGesture
+            doubleTapTextGesture,
+            dismissKeyboardGesture
           );
         case 'text':
           return Gesture.Simultaneous(
             placeTextGesture,
             panSelectionGesture,
             rotateSelectionGesture,
-            doubleTapTextGesture
+            doubleTapTextGesture,
+            dismissKeyboardGesture
           );
         default:
           return Gesture.Exclusive();
@@ -897,17 +952,11 @@ const SkiaIllustrator = React.forwardRef(
       placeTextGesture,
       tapPlaceShapeGesture,
       doubleTapTextGesture,
+      dismissKeyboardGesture,
     ]);
 
     const paperRect = rect(0, 0, resolvedCanvas.width, resolvedCanvas.height);
 
-    // MW - Selection outline. Driven by derived values so the box repaints on
-    // the UI thread when the gesture mutates selectedShapeBounds (reading
-    // `.value` directly in JSX would NOT trigger a React re-render). Width and
-    // height collapse to 0 when nothing is selected, so the outline simply
-    // disappears. The outline is inset by a 5px offset on every side and its
-    // width is capped at 90% of the canvas width. Origin + transform mirror
-    // ShapeNode so the box rotates with the selected shape.
     const SELECTION_OFFSET = 5;
     const maxSelectionWidth = resolvedCanvas.width * 0.9;
     const selectionX = useDerivedValue(
@@ -1230,6 +1279,13 @@ const SkiaIllustrator = React.forwardRef(
       return `data:image/png;base64,${base64}`;
     };
 
+    const closeKeyboard = () => {
+      if (editingTextId) {
+        commitTextEdit();
+      }
+      Keyboard.dismiss();
+    };
+
     React.useImperativeHandle(
       ref,
       () => ({
@@ -1280,7 +1336,7 @@ const SkiaIllustrator = React.forwardRef(
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
         <GestureDetector gesture={activeGestures}>
-          <View style={styles.container}>
+          <View style={styles.container} onPress={closeKeyboard}>
             <Canvas style={{ width: windowWidth, height: windowHeight }}>
               <Group matrix={viewportMatrix}>
                 {
