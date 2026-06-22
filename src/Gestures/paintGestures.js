@@ -5,6 +5,7 @@ import { makeMutable, runOnJS } from 'react-native-reanimated';
 export const createPaintGestures = ({
   currentTool,
   scale,
+  shapes,
   translateX,
   translateY,
   activeStrokePath,

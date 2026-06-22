@@ -1376,10 +1376,6 @@ const SkiaIllustrator = React.forwardRef(
         </GestureDetector>
         {editingTextId != null && (
           <>
-            {/* MW - Fullscreen backdrop: tapping outside the TextInput commits
-                the edit and dismisses the keyboard. Rendered below the
-                TextInput in z-order so the input itself still captures its
-                own touch events. */}
             <TouchableWithoutFeedback onPress={commitTextEdit}>
               <View style={StyleSheet.absoluteFill} />
             </TouchableWithoutFeedback>
@@ -1388,8 +1384,6 @@ const SkiaIllustrator = React.forwardRef(
               style={{
                 position: 'absolute',
                 left: editingScreenPos.x,
-                // Text draws from its baseline in Skia; the top of the box is
-                // one font-height above that.
                 top: editingScreenPos.y - editingScreenPos.fontSize,
                 fontSize: editingScreenPos.fontSize,
                 color: editingScreenPos.colour,
@@ -1397,6 +1391,7 @@ const SkiaIllustrator = React.forwardRef(
                 margin: 0,
                 minWidth: 80,
                 backgroundColor: 'transparent',
+                opacity: 0,
               }}
               value={editingContent}
               onChangeText={onEditingTextChange}
