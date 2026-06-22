@@ -10,6 +10,9 @@
     "build:ios": "react-native build-ios --mode Debug"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.2.0",
+    "@fortawesome/free-solid-svg-icons": "^7.2.0",
+    "@fortawesome/react-native-fontawesome": "^1.0.0",
     "@shopify/react-native-skia": "^2.6.5",
     "react": "19.2.3",
     "react-native": "0.85.0",
@@ -17,7 +20,9 @@
     "react-native-gesture-handler": "^3.0.1",
     "react-native-reanimated": "^4.4.1",
     "react-native-safe-area-context": "^5.8.0",
-    "react-native-worklets": "^0.9.2"
+    "react-native-svg": "^15.15.5",
+    "react-native-worklets": "^0.9.2",
+    "reanimated-color-picker": "^5.1.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
