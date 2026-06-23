@@ -157,6 +157,11 @@ export const createShapeGestures = ({
       const colour = activeStrokeColour.value;
       const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+      // MW - Offset so the shape is centred on the tap point rather than
+      // having its top-left corner there. Circles are already centred (cx/cy).
+      const ox = x - size / 2;
+      const oy = y - size / 2;
+
       let newShape = null;
 
       switch (shapeToolType) {
@@ -164,8 +169,8 @@ export const createShapeGestures = ({
           newShape = {
             id: `rect-${ts}`,
             type: 'rect',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
@@ -173,6 +178,7 @@ export const createShapeGestures = ({
           };
           break;
         case 'circle':
+          // Circle x/y is its centre point, so no offset needed.
           newShape = {
             id: `circle-${ts}`,
             type: 'circle',
@@ -188,7 +194,7 @@ export const createShapeGestures = ({
           newShape = {
             id: `line-${ts}`,
             type: 'line',
-            x,
+            x: ox,
             y,
             width: size,
             height: 0,
@@ -200,8 +206,8 @@ export const createShapeGestures = ({
           newShape = {
             id: `triangle-${ts}`,
             type: 'triangle',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
@@ -212,8 +218,8 @@ export const createShapeGestures = ({
           newShape = {
             id: `arrow-${ts}`,
             type: 'arrow',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
@@ -224,8 +230,8 @@ export const createShapeGestures = ({
           newShape = {
             id: `star-${ts}`,
             type: 'star',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
@@ -236,8 +242,8 @@ export const createShapeGestures = ({
           newShape = {
             id: `diamond-${ts}`,
             type: 'diamond',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
@@ -248,8 +254,8 @@ export const createShapeGestures = ({
           newShape = {
             id: `cross-${ts}`,
             type: 'cross',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
@@ -260,14 +266,32 @@ export const createShapeGestures = ({
           newShape = {
             id: `check-${ts}`,
             type: 'check',
-            x,
-            y,
+            x: ox,
+            y: oy,
             width: size,
             height: size,
             colour,
             rotation: 0,
           };
           break;
+        case 'icon': {
+          // MW - iconPath / iconViewBox are merged in addShape on the JS thread
+          // (via activeIconDataRef) so we don't capture large SVG strings here.
+          newShape = {
+            id: `icon-${ts}`,
+            type: 'icon',
+            x: ox,
+            y: oy,
+            width: size,
+            height: size,
+            colour,
+            rotation: 0,
+            iconName: '',
+            iconPath: '',
+            iconViewBox: { width: 512, height: 512 },
+          };
+          break;
+        }
       }
 
       if (!newShape) {

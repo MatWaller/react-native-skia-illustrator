@@ -14,7 +14,7 @@ import {
 } from 'react-native-safe-area-context';
 import { SkiaIllustrator } from 'react-native-skia-illustrator';
 
-import { TOOLS } from './constants';
+import { TOOLS, ICONS } from './constants';
 import { BottomControls } from './components/BottomControls';
 import { TopHud } from './components/TopHud';
 import image from './graphpaper.png';
@@ -28,6 +28,7 @@ function AppContent() {
   const [brushSize, setBrushSize] = useState(8);
   const [fontSize, setFontSize] = useState(32);
   const [activeShape, setActiveShape] = useState('rect');
+  const [activeIcon, setActiveIcon] = useState(ICONS[0]?.id ?? null);
   const [hasSelectedShape, setHasSelectedShape] = useState(false);
   const skiaRef = useRef(null);
 
@@ -56,6 +57,15 @@ function AppContent() {
   const handleShape = (id) => {
     setActiveShape(id);
     skiaRef.current?.setShape?.(id);
+  };
+
+  const handleIcon = (icon) => {
+    setActiveIcon(icon.id);
+    skiaRef.current?.setIcon?.({
+      iconName: icon.id,
+      iconPath: icon.iconPath,
+      iconViewBox: icon.iconViewBox,
+    });
   };
 
   const handleToolChange = (tool) => {
@@ -134,11 +144,17 @@ function AppContent() {
             fontSize={fontSize}
             activeShape={activeShape}
             bottomInset={insets.bottom}
+            hasSelectedShape={hasSelectedShape}
             onTool={handleTool}
             onColor={handleColor}
             onBrushSize={handleBrushSize}
             onFontSize={handleFontSize}
             onShape={handleShape}
+            onIcon={handleIcon}
+            activeIcon={activeIcon}
+            onDeleteSelectedShape={() => skiaRef.current?.deleteSelectedShape()}
+            onBringShapeForward={() => skiaRef.current?.bringShapeForward()}
+            onSendShapeBackward={() => skiaRef.current?.sendShapeBackward()}
           />
         </>
       )}

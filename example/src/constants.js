@@ -14,7 +14,29 @@ import {
   faShapes,
   faSquare,
   faStar,
+  faLocationDot,
+  faTriangleExclamation,
+  faCircleExclamation,
+  faFlag,
+  faCamera,
+  faWrench,
+  faFire,
+  faDroplet,
+  faBolt,
+  faTree,
+  faTruck,
+  faBuilding,
+  faArrowsLeftRight,
+  faCircleQuestion,
 } from '@fortawesome/free-solid-svg-icons';
+
+function _iconPath(fa) {
+  const d = fa.icon[4];
+  return Array.isArray(d) ? d.join(' ') : d;
+}
+function _iconVB(fa) {
+  return { width: fa.icon[0], height: fa.icon[1] };
+}
 
 export const TOOLS = [
   { id: 'control', label: 'Control', icon: faHandPointDown },
@@ -52,6 +74,142 @@ export const SHAPES = [
   { id: 'diamond', label: 'Diamond', icon: faDiamond },
   { id: 'check', label: 'Check', icon: faCheck },
   { id: 'cross', label: 'Cross', icon: faXmark },
+];
+
+export const ICONS = [
+  {
+    id: 'location-dot',
+    label: 'Location',
+    icon: faLocationDot,
+    iconPath: _iconPath(faLocationDot),
+    iconViewBox: _iconVB(faLocationDot),
+  },
+  {
+    id: 'circle-poi',
+    label: 'Point',
+    icon: faCircle,
+    iconPath: _iconPath(faCircle),
+    iconViewBox: _iconVB(faCircle),
+  },
+  {
+    id: 'xmark-icon',
+    label: 'Fault',
+    icon: faXmark,
+    iconPath: _iconPath(faXmark),
+    iconViewBox: _iconVB(faXmark),
+  },
+  {
+    id: 'check-icon',
+    label: 'Pass',
+    icon: faCheck,
+    iconPath: _iconPath(faCheck),
+    iconViewBox: _iconVB(faCheck),
+  },
+  {
+    id: 'triangle-exclamation',
+    label: 'Hazard',
+    icon: faTriangleExclamation,
+    iconPath: _iconPath(faTriangleExclamation),
+    iconViewBox: _iconVB(faTriangleExclamation),
+  },
+  {
+    id: 'circle-exclamation',
+    label: 'Note',
+    icon: faCircleExclamation,
+    iconPath: _iconPath(faCircleExclamation),
+    iconViewBox: _iconVB(faCircleExclamation),
+  },
+  {
+    id: 'arrow-up-icon',
+    label: 'Direction',
+    icon: faArrowUp,
+    iconPath: _iconPath(faArrowUp),
+    iconViewBox: _iconVB(faArrowUp),
+  },
+  {
+    id: 'star-icon',
+    label: 'Priority',
+    icon: faStar,
+    iconPath: _iconPath(faStar),
+    iconViewBox: _iconVB(faStar),
+  },
+  {
+    id: 'flag',
+    label: 'Flag',
+    icon: faFlag,
+    iconPath: _iconPath(faFlag),
+    iconViewBox: _iconVB(faFlag),
+  },
+  {
+    id: 'camera',
+    label: 'Camera',
+    icon: faCamera,
+    iconPath: _iconPath(faCamera),
+    iconViewBox: _iconVB(faCamera),
+  },
+  {
+    id: 'wrench',
+    label: 'Repair',
+    icon: faWrench,
+    iconPath: _iconPath(faWrench),
+    iconViewBox: _iconVB(faWrench),
+  },
+  {
+    id: 'fire',
+    label: 'Fire',
+    icon: faFire,
+    iconPath: _iconPath(faFire),
+    iconViewBox: _iconVB(faFire),
+  },
+  {
+    id: 'droplet',
+    label: 'Water',
+    icon: faDroplet,
+    iconPath: _iconPath(faDroplet),
+    iconViewBox: _iconVB(faDroplet),
+  },
+  {
+    id: 'bolt',
+    label: 'Electrical',
+    icon: faBolt,
+    iconPath: _iconPath(faBolt),
+    iconViewBox: _iconVB(faBolt),
+  },
+  {
+    id: 'tree',
+    label: 'Vegetation',
+    icon: faTree,
+    iconPath: _iconPath(faTree),
+    iconViewBox: _iconVB(faTree),
+  },
+  {
+    id: 'truck',
+    label: 'Access',
+    icon: faTruck,
+    iconPath: _iconPath(faTruck),
+    iconViewBox: _iconVB(faTruck),
+  },
+  {
+    id: 'building',
+    label: 'Structure',
+    icon: faBuilding,
+    iconPath: _iconPath(faBuilding),
+    iconViewBox: _iconVB(faBuilding),
+  },
+  {
+    id: 'arrows-left-right',
+    label: 'Span',
+    icon: faArrowsLeftRight,
+    iconPath: _iconPath(faArrowsLeftRight),
+    iconViewBox: _iconVB(faArrowsLeftRight),
+  },
+  {
+    id: 'circle-question',
+    label: 'Unknown',
+    icon: faCircleQuestion,
+    iconPath: _iconPath(faCircleQuestion),
+    iconViewBox: _iconVB(faCircleQuestion),
+  },
 ];
 
 export const BRUSH_MIN = 2;

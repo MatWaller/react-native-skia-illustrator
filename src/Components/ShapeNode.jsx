@@ -166,8 +166,42 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
 
   const transform = useDerivedValue(() => {
     const shape = shapes.value.find((s) => s.id === shapeID);
-    return shape ? [{ rotate: ((shape.rotation ?? 0) * Math.PI) / 180 }] : [];
+    // MW - When the shape has been removed from shapes.value but the React
+    // ShapeNode hasn't unmounted yet (one-frame gap), collapse to invisible so
+    // icons and other shapes don't flash at default/identity-matrix scale.
+    if (!shape) return [{ scale: 0 }];
+    return [{ rotate: ((shape.rotation ?? 0) * Math.PI) / 180 }];
   });
+
+  // MW - FontAwesome Support :)
+  const iconSkiaPath = React.useMemo(() => {
+    if (!currentShape?.iconPath) return null;
+    return Skia.Path.MakeFromSVGString(currentShape.iconPath);
+  }, [currentShape?.iconPath]);
+
+  const iconMatrix = useDerivedValue(() => {
+    const shape = shapes.value.find((s) => s.id === shapeID);
+    if (!shape || shape.type !== 'icon') return Skia.Matrix();
+    const vbW = shape.iconViewBox?.width ?? 512;
+    const vbH = shape.iconViewBox?.height ?? 512;
+    const sx = (shape.width ?? vbW) / vbW;
+    const sy = (shape.height ?? vbH) / vbH;
+    const m = Skia.Matrix();
+    m.translate(shape.x, shape.y);
+    m.scale(sx, sy);
+    return m;
+  });
+
+  if (shapeType === 'icon') {
+    if (!iconSkiaPath) return null;
+    return (
+      <Group origin={origin} transform={transform}>
+        <Group matrix={iconMatrix}>
+          <Path path={iconSkiaPath} color={colour} />
+        </Group>
+      </Group>
+    );
+  }
 
   if (shapeType === 'rect') {
     return (

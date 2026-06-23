@@ -8,7 +8,11 @@ import {
   View,
 } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
-import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
+import {
+  faChevronDown,
+  faChevronUp,
+  faTrash,
+} from '@fortawesome/free-solid-svg-icons';
 import ColorPicker, { HueSlider, Panel1 } from 'reanimated-color-picker';
 import { BrushSlider } from './BrushSlider';
 import {
@@ -16,6 +20,7 @@ import {
   BRUSH_MIN,
   FONT_MAX,
   FONT_MIN,
+  ICONS,
   PALETTE,
   SHAPES,
   TOOLS,
@@ -147,29 +152,63 @@ function PaintControls({
   );
 }
 
-function ShapeControls({ activeShape, onShape }) {
+function ShapeControls({ activeShape, activeIcon, onShape, onIcon }) {
+  const [tab, setTab] = useState('shapes');
+  const items = tab === 'shapes' ? SHAPES : ICONS;
+
   return (
     <View style={styles.panel} pointerEvents="auto">
+      <View style={styles.shapeTabBar}>
+        <TouchableOpacity
+          style={[styles.shapeTab, tab === 'shapes' && styles.shapeTabActive]}
+          onPress={() => setTab('shapes')}
+        >
+          <Text
+            style={[
+              styles.shapeTabLabel,
+              tab === 'shapes' && styles.shapeTabLabelActive,
+            ]}
+          >
+            Shapes
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.shapeTab, tab === 'icons' && styles.shapeTabActive]}
+          onPress={() => setTab('icons')}
+        >
+          <Text
+            style={[
+              styles.shapeTabLabel,
+              tab === 'icons' && styles.shapeTabLabelActive,
+            ]}
+          >
+            Icons
+          </Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.shapeScroll}
       >
-        {SHAPES.map((shape) => {
-          const active = activeShape === shape.id;
+        {items.map((item) => {
+          const active =
+            tab === 'shapes' ? activeShape === item.id : activeIcon === item.id;
           return (
             <TouchableOpacity
-              key={shape.id}
+              key={item.id}
               style={[styles.shapeBtn, active && styles.shapeBtnActive]}
-              onPress={() => onShape(shape.id)}
+              onPress={() =>
+                tab === 'shapes' ? onShape(item.id) : onIcon(item)
+              }
             >
               <View style={styles.shapeIcon}>
-                <FontAwesomeIcon icon={shape.icon} size={20} color="#fff" />
+                <FontAwesomeIcon icon={item.icon} size={20} color="#fff" />
               </View>
               <Text
                 style={[styles.shapeLabel, active && styles.shapeLabelActive]}
               >
-                {shape.label}
+                {item.label}
               </Text>
             </TouchableOpacity>
           );
@@ -190,6 +229,48 @@ function TextControls({ activeColor, fontSize, onColor, onFontSize }) {
         value={fontSize}
         onChange={onFontSize}
       />
+    </View>
+  );
+}
+
+function SelectionContextBar({ onDelete, onBringForward, onSendBackward }) {
+  return (
+    <View style={styles.contextBar} pointerEvents="auto">
+      <Text style={styles.contextLabel}>Selection</Text>
+      <View style={styles.contextDivider} />
+      <TouchableOpacity
+        style={styles.contextActionNeutral}
+        onPress={onBringForward}
+        activeOpacity={0.72}
+      >
+        <FontAwesomeIcon
+          icon={faChevronUp}
+          size={13}
+          color="rgba(255,255,255,0.85)"
+        />
+        <Text style={styles.contextActionLabelNeutral}>Forward</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.contextActionNeutral}
+        onPress={onSendBackward}
+        activeOpacity={0.72}
+      >
+        <FontAwesomeIcon
+          icon={faChevronDown}
+          size={13}
+          color="rgba(255,255,255,0.85)"
+        />
+        <Text style={styles.contextActionLabelNeutral}>Backward</Text>
+      </TouchableOpacity>
+      <View style={styles.contextDivider} />
+      <TouchableOpacity
+        style={styles.contextAction}
+        onPress={onDelete}
+        activeOpacity={0.72}
+      >
+        <FontAwesomeIcon icon={faTrash} size={14} color="#ff453a" />
+        <Text style={styles.contextActionLabel}>Delete</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -224,12 +305,18 @@ export function BottomControls({
   brushSize,
   fontSize,
   activeShape,
+  activeIcon,
   bottomInset,
+  hasSelectedShape,
   onTool,
   onColor,
   onBrushSize,
   onFontSize,
   onShape,
+  onIcon,
+  onDeleteSelectedShape,
+  onBringShapeForward,
+  onSendShapeBackward,
 }) {
   const [optionsExpanded, setOptionsExpanded] = useState(true);
   const hasActiveOptions =
@@ -265,6 +352,13 @@ export function BottomControls({
       pointerEvents="box-none"
     >
       <View style={styles.bottomContent}>
+        {hasSelectedShape && (
+          <SelectionContextBar
+            onDelete={onDeleteSelectedShape}
+            onBringForward={onBringShapeForward}
+            onSendBackward={onSendShapeBackward}
+          />
+        )}
         {showPaintControls && (
           <PaintControls
             showColorRow={showColorRow}
@@ -275,7 +369,12 @@ export function BottomControls({
           />
         )}
         {showShapeControls && (
-          <ShapeControls activeShape={activeShape} onShape={onShape} />
+          <ShapeControls
+            activeShape={activeShape}
+            activeIcon={activeIcon}
+            onShape={onShape}
+            onIcon={onIcon}
+          />
         )}
         {showTextControls && (
           <TextControls
@@ -407,6 +506,30 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 2,
   },
+  shapeTabBar: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    padding: 2,
+  },
+  shapeTab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  shapeTabActive: {
+    backgroundColor: 'rgba(99,102,241,0.8)',
+  },
+  shapeTabLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  shapeTabLabelActive: {
+    color: '#fff',
+  },
   shapeBtn: {
     width: 64,
     alignItems: 'center',
@@ -462,5 +585,54 @@ const styles = StyleSheet.create({
   },
   toolLabelActive: {
     color: '#fff',
+  },
+  contextBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15,15,20,0.88)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  contextLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  contextDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  contextAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,69,58,0.12)',
+  },
+  contextActionLabel: {
+    color: '#ff453a',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  contextActionNeutral: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  contextActionLabelNeutral: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
