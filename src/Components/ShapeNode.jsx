@@ -49,28 +49,36 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
     [currentShape?.fontSize, typeface]
   );
 
+  // MW - Resolve this node's shape from the shared array exactly once per
+  // update. Every visual property below reads from this single derived value
+  // instead of running its own shapes.value.find(), which turned each shape
+  // update into O(props x shapeCount) array scans.
+  const shapeData = useDerivedValue(
+    () => shapes.value.find((s) => s.id === shapeID) ?? null
+  );
+
   const x = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     return shape ? shape.x : 0;
   });
   const y = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     return shape ? shape.y : 0;
   });
   const width = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     return shape ? (shape.width ?? 0) : 0;
   });
   const height = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     return shape ? (shape.height ?? 0) : 0;
   });
   const radius = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     return shape ? (shape.radius ?? 10) : 10;
   });
   const colour = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     return shape ? (shape.colour ?? 'black') : 'black';
   });
 
@@ -146,7 +154,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   });
 
   const origin = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     if (!shape) return { x: 0, y: 0 };
 
     // MW - Pivot rotation around each shape's true visual centre so it spins in
@@ -165,7 +173,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   });
 
   const transform = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     // MW - When the shape has been removed from shapes.value but the React
     // ShapeNode hasn't unmounted yet (one-frame gap), collapse to invisible so
     // icons and other shapes don't flash at default/identity-matrix scale.
@@ -180,7 +188,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   }, [currentShape?.iconPath]);
 
   const iconMatrix = useDerivedValue(() => {
-    const shape = shapes.value.find((s) => s.id === shapeID);
+    const shape = shapeData.value;
     if (!shape || shape.type !== 'icon') return Skia.Matrix();
     const vbW = shape.iconViewBox?.width ?? 512;
     const vbH = shape.iconViewBox?.height ?? 512;

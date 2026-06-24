@@ -314,6 +314,18 @@ const SkiaIllustrator = React.forwardRef(
       }
     }, []);
 
+    // MW - Clear any pending active-stroke reset timer on unmount so the
+    // delayed callback can't fire after teardown and mutate a disposed shared
+    // value (a memory/leak hazard and a potential UI-thread crash).
+    useEffect(() => {
+      return () => {
+        if (resetTimer.current) {
+          clearTimeout(resetTimer.current);
+          resetTimer.current = null;
+        }
+      };
+    }, []);
+
     // MW - Called via runOnJS from gesture onBegin handlers before a shape is
     // dragged or rotated. The shapesSnapshot is captured on the UI thread at
     // gesture-start time, before any onUpdate mutation fires, so it reliably
@@ -1471,6 +1483,13 @@ const SkiaIllustrator = React.forwardRef(
       Keyboard.dismiss();
     };
 
+    // MW - Memoise the window-sized canvas style so a new object isn't
+    // allocated on every render (only when the window dimensions change).
+    const canvasStyle = useMemo(
+      () => ({ width: windowWidth, height: windowHeight }),
+      [windowWidth, windowHeight]
+    );
+
     React.useImperativeHandle(
       ref,
       () => ({
@@ -1661,14 +1680,14 @@ const SkiaIllustrator = React.forwardRef(
     );
 
     return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={styles.root}>
         <GestureDetector gesture={activeGestures}>
           <View
             style={styles.container}
             onLayout={() => setCanvasReady(true)}
             onPress={closeKeyboard}
           >
-            <Canvas style={{ width: windowWidth, height: windowHeight }}>
+            <Canvas style={canvasStyle}>
               <Group matrix={viewportMatrix}>
                 {
                   // MW - Below is the paperRect with a white background and a shadow.
@@ -1807,6 +1826,9 @@ const SkiaIllustrator = React.forwardRef(
 export default SkiaIllustrator;
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     justifyContent: 'center',
