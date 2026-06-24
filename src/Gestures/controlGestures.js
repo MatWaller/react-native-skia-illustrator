@@ -265,17 +265,14 @@ export const createControlGestures = ({
           if (currentShapes[i].id === selectedShapeId.value) {
             const shape = currentShapes[i];
             if (shape.type === 'circle') {
-              const newRadius =
-                pinchStartDimensions.value.radius * event.scale;
+              const newRadius = pinchStartDimensions.value.radius * event.scale;
               if (newRadius > 0) {
                 shape.radius = newRadius;
                 selectedShapeBounds.value = getShapeBounds(shape);
               }
             } else {
-              const newWidth =
-                pinchStartDimensions.value.width * event.scale;
-              const newHeight =
-                pinchStartDimensions.value.height * event.scale;
+              const newWidth = pinchStartDimensions.value.width * event.scale;
+              const newHeight = pinchStartDimensions.value.height * event.scale;
               if (newWidth > 0 && newHeight > 0) {
                 shape.width = newWidth;
                 shape.height = newHeight;

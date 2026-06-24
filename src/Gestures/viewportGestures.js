@@ -38,7 +38,7 @@ export const createViewportGestures = ({
     };
   };
 
-=  const prevPinchEventScale = makeMutable(1);
+  const prevPinchEventScale = makeMutable(1);
   const prevPinchFocalX = makeMutable(0);
   const prevPinchFocalY = makeMutable(0);
 
