@@ -8,6 +8,8 @@ export function TopHud({
   activeMeta,
   activeTool,
   onSave,
+  onSaveProject,
+  onLoadProject,
   onClear,
   onDeleteSelectedShape,
   hasSelectedShape,
@@ -72,6 +74,14 @@ export function TopHud({
       <View style={styles.actionColumn} pointerEvents="auto">
         <TouchableOpacity style={styles.saveBtn} onPress={onSave}>
           <Text style={styles.btnText}>Save Image</Text>
+        </TouchableOpacity>
+        <View style={styles.actionSpacer} />
+        <TouchableOpacity style={styles.projectSaveBtn} onPress={onSaveProject}>
+          <Text style={styles.btnText}>Save Project</Text>
+        </TouchableOpacity>
+        <View style={styles.actionSpacer} />
+        <TouchableOpacity style={styles.projectLoadBtn} onPress={onLoadProject}>
+          <Text style={styles.btnText}>Load Project</Text>
         </TouchableOpacity>
         <View style={styles.actionSpacer} />
         <TouchableOpacity style={styles.clearBtn} onPress={onClear}>
@@ -166,6 +176,18 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     backgroundColor: 'rgba(59,130,246,0.88)',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+  projectSaveBtn: {
+    backgroundColor: 'rgba(16,185,129,0.88)',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+  },
+  projectLoadBtn: {
+    backgroundColor: 'rgba(245,158,11,0.88)',
     paddingHorizontal: 16,
     paddingVertical: 7,
     borderRadius: 20,

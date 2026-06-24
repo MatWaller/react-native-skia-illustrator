@@ -12,12 +12,15 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import RNFS from 'react-native-fs';
 import { SkiaIllustrator } from 'react-native-skia-illustrator';
 
 import { TOOLS, ICONS } from './constants';
 import { BottomControls } from './components/BottomControls';
 import { TopHud } from './components/TopHud';
 import image from './graphpaper.png';
+
+const PROJECT_FILE = `${RNFS.DocumentDirectoryPath}/illustrator_project.cdi`;
 
 function AppContent() {
   const insets = useSafeAreaInsets();
@@ -30,6 +33,7 @@ function AppContent() {
   const [activeShape, setActiveShape] = useState('rect');
   const [activeIcon, setActiveIcon] = useState(ICONS[0]?.id ?? null);
   const [hasSelectedShape, setHasSelectedShape] = useState(false);
+  const [initialProjectData, setInitialProjectData] = useState(null);
   const skiaRef = useRef(null);
 
   const activeMeta = TOOLS.find((tool) => tool.id === activeTool);
@@ -85,6 +89,31 @@ function AppContent() {
     }
   };
 
+  const handleSaveProject = async () => {
+    try {
+      const json = skiaRef.current?.serializeCanvas();
+      if (!json) return;
+      await RNFS.writeFile(PROJECT_FILE, json, 'utf8');
+      console.log('Project saved to:', PROJECT_FILE);
+    } catch (error) {
+      console.error('Error saving project:', error);
+    }
+  };
+
+  const handleLoadProject = async () => {
+    try {
+      const exists = await RNFS.exists(PROJECT_FILE);
+      if (!exists) {
+        console.warn('No saved project found at:', PROJECT_FILE);
+        return;
+      }
+      const json = await RNFS.readFile(PROJECT_FILE, 'utf8');
+      skiaRef.current?.loadCanvas(json);
+    } catch (error) {
+      console.error('Error loading project:', error);
+    }
+  };
+
   useEffect(() => {
     const loadGraphPaper = async () => {
       try {
@@ -99,6 +128,16 @@ function AppContent() {
         setBase64String(btoa(bin));
       } catch (error) {
         console.error('Failed to load image:', error);
+      }
+
+      try {
+        const exists = await RNFS.exists(PROJECT_FILE);
+        if (exists) {
+          const json = await RNFS.readFile(PROJECT_FILE, 'utf8');
+          setInitialProjectData(json);
+        }
+      } catch (error) {
+        console.error('Error reading project file:', error);
       } finally {
         setLoading(false);
       }
@@ -124,14 +163,16 @@ function AppContent() {
           <SkiaIllustrator
             ref={skiaRef}
             imageSource={base64String}
+            initialData={initialProjectData}
             onToolChange={handleToolChange}
             onSelectedShapeChange={setHasSelectedShape}
           />
-
           <TopHud
             activeMeta={activeMeta}
             activeTool={activeTool}
             onSave={handleSave}
+            onSaveProject={handleSaveProject}
+            onLoadProject={handleLoadProject}
             onClear={() => skiaRef.current?.clearCanvas()}
             onDeleteSelectedShape={() => skiaRef.current?.deleteSelectedShape()}
             topInset={insets.top}

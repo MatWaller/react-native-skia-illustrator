@@ -21,6 +21,7 @@ export const createControlGestures = ({
   selectedShapeStart,
   selectedShapeBounds,
   selectedShapeRotation,
+  pinchStartDimensions,
   shapes,
   onSelectedShapeChange,
   onBeforeShapeMutation = null,
@@ -139,6 +140,7 @@ export const createControlGestures = ({
   };
 
   const isPanningViewport = makeMutable(false);
+  const lastPinchEndedAt = makeMutable(0);
 
   const controlPanGesture = Gesture.Pan()
     .minDistance(0)
@@ -165,9 +167,13 @@ export const createControlGestures = ({
         // Touching a shape — set up shape drag.
         isPanningViewport.value = false;
       } else if (selectedShapeId.value == null) {
-        isPanningViewport.value = true;
-        savedTranslateX.value = translateX.value;
-        savedTranslateY.value = translateY.value;
+        if (Date.now() - lastPinchEndedAt.value < 500) {
+          isPanningViewport.value = false;
+        } else {
+          isPanningViewport.value = true;
+          savedTranslateX.value = translateX.value;
+          savedTranslateY.value = translateY.value;
+        }
       } else {
         isPanningViewport.value = false;
         selectedShapeBounds.value = { x: 0, y: 0, width: 0, height: 0 };
@@ -224,15 +230,66 @@ export const createControlGestures = ({
   const controlPinchGesture = Gesture.Pinch()
     .onBegin(() => {
       'worklet';
-      if (selectedShapeId.value != null) return;
+      if (selectedShapeId.value != null) {
+        // MW - Snapshot dimensions at gesture start so onUpdate can scale from
+        // a fixed baseline (event.scale is cumulative from 1.0).
+        const currentShapes = shapes.value;
+        for (let i = 0; i < currentShapes.length; i++) {
+          if (currentShapes[i].id === selectedShapeId.value) {
+            const shape = currentShapes[i];
+            pinchStartDimensions.value = {
+              width: shape.width ?? 0,
+              height: shape.height ?? 0,
+              radius: shape.radius ?? 0,
+            };
+            if (onBeforeShapeMutation) {
+              runOnJS(onBeforeShapeMutation)(
+                currentShapes.map((s) => ({ ...s }))
+              );
+            }
+            return;
+          }
+        }
+        return;
+      }
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
     })
     .onUpdate((event) => {
       'worklet';
-      // MW - When a shape is selected, pinch should not zoom/pan the viewport.
-      if (selectedShapeId.value != null) return;
+      if (selectedShapeId.value != null) {
+        // MW - Resize the selected shape; do not zoom/pan the viewport.
+        const currentShapes = shapes.value;
+        for (let i = 0; i < currentShapes.length; i++) {
+          if (currentShapes[i].id === selectedShapeId.value) {
+            const shape = currentShapes[i];
+            if (shape.type === 'circle') {
+              const newRadius =
+                pinchStartDimensions.value.radius * event.scale;
+              if (newRadius > 0) {
+                shape.radius = newRadius;
+                selectedShapeBounds.value = getShapeBounds(shape);
+              }
+            } else {
+              const newWidth =
+                pinchStartDimensions.value.width * event.scale;
+              const newHeight =
+                pinchStartDimensions.value.height * event.scale;
+              if (newWidth > 0 && newHeight > 0) {
+                shape.width = newWidth;
+                shape.height = newHeight;
+                selectedShapeBounds.value = getShapeBounds(shape);
+              }
+            }
+            break;
+          }
+        }
+        shapes.value = [...currentShapes];
+        notifyChange(shapes);
+        notifyChange(selectedShapeBounds);
+        return;
+      }
       let nextScale = savedScale.value * event.scale;
       nextScale = Math.min(Math.max(nextScale, MIN_SCALE), MAX_SCALE);
       const focalX = event.focalX;
@@ -254,6 +311,7 @@ export const createControlGestures = ({
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
+      lastPinchEndedAt.value = Date.now();
     });
 
   const controlRotateGesture = Gesture.Rotation()

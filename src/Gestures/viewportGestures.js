@@ -1,4 +1,5 @@
 import { Gesture } from 'react-native-gesture-handler';
+import { makeMutable } from 'react-native-reanimated';
 
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 5;
@@ -37,8 +38,18 @@ export const createViewportGestures = ({
     };
   };
 
+=  const prevPinchEventScale = makeMutable(1);
+  const prevPinchFocalX = makeMutable(0);
+  const prevPinchFocalY = makeMutable(0);
+
   const panViewportGesture = Gesture.Pan()
     .enabled(currentTool === 'move' || currentTool === 'selection')
+    .maxPointers(1)
+    .onBegin(() => {
+      'worklet';
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    })
     .onUpdate((event) => {
       'worklet';
       translateX.value = savedTranslateX.value + event.translationX;
@@ -61,34 +72,42 @@ export const createViewportGestures = ({
 
   const pinchViewportGesture = Gesture.Pinch()
     .enabled(currentTool === 'move' || currentTool === 'selection')
-    .onBegin(() => {
+    .onBegin((event) => {
       'worklet';
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
+      prevPinchEventScale.value = 1;
+      prevPinchFocalX.value = event.focalX;
+      prevPinchFocalY.value = event.focalY;
     })
     .onUpdate((event) => {
       'worklet';
-      let nextScale = savedScale.value * event.scale;
+      const scaleDelta = event.scale / prevPinchEventScale.value;
+      const focalDX = event.focalX - prevPinchFocalX.value;
+      const focalDY = event.focalY - prevPinchFocalY.value;
+
+      // MW - First translate to follow the focal point's movement.
+      let tx = translateX.value + focalDX;
+      let ty = translateY.value + focalDY;
+
+      // MW - Then scale around the new focal point.
+      let nextScale = scale.value * scaleDelta;
       nextScale = Math.min(Math.max(nextScale, MIN_SCALE), MAX_SCALE);
+      const actualScaleDelta = nextScale / scale.value;
 
-      const focalX = event.focalX;
-      const focalY = event.focalY;
+      tx = event.focalX - (event.focalX - tx) * actualScaleDelta;
+      ty = event.focalY - (event.focalY - ty) * actualScaleDelta;
 
-      // MW - Calculate the new translation so the focal point stays fixed on the paper.
-      const targetX =
-        focalX -
-        (focalX - savedTranslateX.value) * (nextScale / savedScale.value);
-      const targetY =
-        focalY -
-        (focalY - savedTranslateY.value) * (nextScale / savedScale.value);
+      const clamped = clampTranslations(tx, ty, nextScale);
 
-      const clamped = clampTranslations(targetX, targetY, nextScale);
-
-      // MW - Update the scale and translation values.
       scale.value = nextScale;
       translateX.value = clamped.x;
       translateY.value = clamped.y;
+
+      prevPinchEventScale.value = event.scale;
+      prevPinchFocalX.value = event.focalX;
+      prevPinchFocalY.value = event.focalY;
     })
     .onEnd(() => {
       'worklet';

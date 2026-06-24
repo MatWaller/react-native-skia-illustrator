@@ -11,6 +11,7 @@ export const createSelectionGestures = ({
   selectedShapeStart,
   selectedShapeBounds,
   selectedShapeRotation,
+  pinchStartDimensions,
   shapes,
   onSelectedShapeChange,
   onBeforeShapeMutation = null,
@@ -118,6 +119,72 @@ export const createSelectionGestures = ({
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   };
 
+  const pinchResizeGesture = Gesture.Pinch()
+    .onBegin(() => {
+      'worklet';
+      if (!selectedShapeId.value) return;
+
+      const currentShapes = shapes.value;
+
+      for (let i = 0; i < currentShapes.length; i++) {
+        if (currentShapes[i].id === selectedShapeId.value) {
+          const shape = currentShapes[i];
+          // MW - Snapshot dimensions at gesture start so onUpdate can scale
+          // from a fixed baseline (event.scale is cumulative from 1.0).
+          pinchStartDimensions.value = {
+            width: shape.width ?? 0,
+            height: shape.height ?? 0,
+            radius: shape.radius ?? 0,
+          };
+          if (onBeforeShapeMutation) {
+            runOnJS(onBeforeShapeMutation)(
+              currentShapes.map((s) => ({ ...s }))
+            );
+          }
+          break;
+        }
+      }
+    })
+    .onUpdate((event) => {
+      'worklet';
+      if (!selectedShapeId.value) return;
+
+      const currentShapes = shapes.value;
+
+      for (let i = 0; i < currentShapes.length; i++) {
+        if (currentShapes[i].id === selectedShapeId.value) {
+          const shape = currentShapes[i];
+
+          if (shape.type === 'circle') {
+            // MW - Circles use radius, not width/height.
+            const newRadius = pinchStartDimensions.value.radius * event.scale;
+            if (newRadius > 0) {
+              shape.radius = newRadius;
+              selectedShapeBounds.value = getShapeBounds(shape);
+            }
+          } else {
+            // MW - Use the snapshotted start dimensions so scale is applied
+            // relative to the gesture origin, not the current (already-scaled)
+            // dimensions — otherwise each frame compounds the previous one.
+            const newWidth = pinchStartDimensions.value.width * event.scale;
+            const newHeight = pinchStartDimensions.value.height * event.scale;
+
+            // MW - Prevent resizing to zero or negative dimensions.
+            if (newWidth > 0 && newHeight > 0) {
+              shape.width = newWidth;
+              shape.height = newHeight;
+              selectedShapeBounds.value = getShapeBounds(shape);
+            }
+          }
+          break;
+        }
+      }
+
+      shapes.value = [...currentShapes];
+
+      notifyChange(shapes);
+      notifyChange(selectedShapeBounds);
+    });
   const tapSelectionGesture = Gesture.Tap()
     .enabled(currentTool === 'selection' || currentTool === 'move')
     .onStart((event) => {
@@ -247,5 +314,6 @@ export const createSelectionGestures = ({
     panSelectionGesture,
     tapSelectionGesture,
     rotateSelectionGesture,
+    pinchResizeGesture,
   };
 };

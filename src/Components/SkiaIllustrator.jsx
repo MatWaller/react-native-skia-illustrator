@@ -2,12 +2,7 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState } from 'react';
 
 // React Native Imports
-import {
-  StyleSheet,
-  View,
-  useWindowDimensions,
-  Keyboard
-} from 'react-native';
+import { StyleSheet, View, useWindowDimensions, Keyboard } from 'react-native';
 
 // Gesture Handler Imports
 import {
@@ -17,7 +12,6 @@ import {
 } from 'react-native-gesture-handler';
 
 // Gesture Imports
-import { createViewportGestures } from '../Gestures/viewportGestures';
 import { createSelectionGestures } from '../Gestures/selectionGestures';
 import { createPaintGestures } from '../Gestures/paintGestures';
 import { createTextGestures } from '../Gestures/textGestures';
@@ -25,11 +19,7 @@ import { createShapeGestures } from '../Gestures/shapeGesture';
 import { createControlGestures } from '../Gestures/controlGestures';
 
 // Reanimated Imports
-import {
-  useSharedValue,
-  useDerivedValue,
-  runOnJS,
-} from 'react-native-reanimated';
+import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 
 // Skia Imports
 import {
@@ -58,7 +48,12 @@ import SelectionOutline from './SelectionOutline';
 import TextEditingOverlay from './TextEditingOverlay';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { useTextEditing } from '../hooks/useTextEditing';
-import { getShapeLayer, getShapeAABB, buildFlattenedPath, PAPER_SIZE } from '../utils/shapeUtils';
+import {
+  getShapeLayer,
+  getShapeAABB,
+  buildFlattenedPath,
+  PAPER_SIZE,
+} from '../utils/shapeUtils';
 
 const SkiaIllustrator = React.forwardRef(
   (
@@ -68,6 +63,7 @@ const SkiaIllustrator = React.forwardRef(
       _showGrid = true,
       _showRuler = true,
       imageSource = null,
+      initialData = null,
       onToolChange = null,
       onSelectedShapeChange = null,
     },
@@ -106,6 +102,11 @@ const SkiaIllustrator = React.forwardRef(
 
     const selectedShapeId = useSharedValue(null);
     const selectedShapeStart = useSharedValue({ x: 0, y: 0 });
+    const pinchStartDimensions = useSharedValue({
+      width: 0,
+      height: 0,
+      radius: 0,
+    });
     const mountedShapeIds = useSharedValue([]);
 
     // MW - Paint states.
@@ -123,6 +124,7 @@ const SkiaIllustrator = React.forwardRef(
     const activeIconDataRef = React.useRef(null);
 
     const [layers, setLayers] = useState([
+      { id: 'underlayer', name: 'Under Paint' },
       { id: 'drawing', name: 'Drawing' },
       { id: 'shapes', name: 'Shapes' },
       { id: 'text', name: 'Text' },
@@ -164,7 +166,6 @@ const SkiaIllustrator = React.forwardRef(
     const {
       buildSnapshot,
       pushHistory,
-      restoreSnapshot,
       undo,
       redo,
       historySize,
@@ -324,6 +325,7 @@ const SkiaIllustrator = React.forwardRef(
       [pushHistory, buildSnapshot]
     );
 
+    // MW - Background Image Logic - Set canvas size to image size if image is provided, else use canvasWidth and canvasHeight props.
     useEffect(() => {
       let targetWidth = canvasWidth;
       let targetHeight = canvasHeight;
@@ -383,53 +385,14 @@ const SkiaIllustrator = React.forwardRef(
       return matrix;
     });
 
-    const { panViewportGesture, pinchViewportGesture } = useMemo(
+    const {
+      panSelectionGesture,
+      rotateSelectionGesture,
+      tapSelectionGesture,
+      pinchResizeGesture,
+    } = useMemo(
       () =>
-        createViewportGestures({
-          currentTool,
-          scale,
-          savedScale,
-          translateX,
-          translateY,
-          savedTranslateX,
-          savedTranslateY,
-          windowHeight,
-          windowWidth,
-          canvasWidth: resolvedCanvas.width,
-          canvasHeight: resolvedCanvas.height,
-        }),
-      [
-        currentTool,
-        scale,
-        savedScale,
-        translateX,
-        translateY,
-        savedTranslateX,
-        savedTranslateY,
-        resolvedCanvas.width,
-        resolvedCanvas.height,
-        windowHeight,
-        windowWidth,
-      ]
-    );
-
-    const { panSelectionGesture, rotateSelectionGesture, tapSelectionGesture } =
-      useMemo(
-        () =>
-          createSelectionGestures({
-            currentTool,
-            scale,
-            translateX,
-            translateY,
-            selectedShapeId,
-            selectedShapeStart,
-            selectedShapeBounds,
-            selectedShapeRotation,
-            shapes,
-            onSelectedShapeChange: notifySelectedShapeChange,
-            onBeforeShapeMutation,
-          }),
-        [
+        createSelectionGestures({
           currentTool,
           scale,
           translateX,
@@ -438,11 +401,26 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
+          pinchStartDimensions,
           shapes,
-          notifySelectedShapeChange,
+          onSelectedShapeChange: notifySelectedShapeChange,
           onBeforeShapeMutation,
-        ]
-      );
+        }),
+      [
+        currentTool,
+        scale,
+        translateX,
+        translateY,
+        selectedShapeId,
+        selectedShapeStart,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        pinchStartDimensions,
+        shapes,
+        notifySelectedShapeChange,
+        onBeforeShapeMutation,
+      ]
+    );
 
     const { paintGesture } = useMemo(
       () =>
@@ -475,16 +453,32 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory(
           buildSnapshot(shapes.value.filter((s) => s.id !== shape.id))
         );
-        // MW - Icon shapes carry only geometry from the worklet 
-        const finalShape =
+        // MW - Icon shapes carry only geometry from the worklet
+        let finalShape =
           shape.type === 'icon' && activeIconDataRef.current
             ? {
                 ...shape,
                 iconName: activeIconDataRef.current.iconName ?? '',
                 iconPath: activeIconDataRef.current.iconPath ?? '',
-                iconViewBox: activeIconDataRef.current.iconViewBox ?? { width: 512, height: 512 },
+                iconViewBox: activeIconDataRef.current.iconViewBox ?? {
+                  width: 512,
+                  height: 512,
+                },
               }
             : shape;
+        // MW - Correct the icon height so it matches the viewbox aspect ratio.
+        // Icons are placed as squares from the gesture worklet (viewbox unknown
+        // there), so we fix up the height here once we have the real viewbox.
+        if (finalShape.type === 'icon' && finalShape.iconViewBox) {
+          const vbW = finalShape.iconViewBox.width;
+          const vbH = finalShape.iconViewBox.height;
+          if (vbW > 0 && vbH > 0 && vbW !== vbH) {
+            finalShape = {
+              ...finalShape,
+              height: finalShape.width * (vbH / vbW),
+            };
+          }
+        }
         // MW - Replace the bare shape in the shared value with the enriched one.
         if (finalShape !== shape) {
           shapes.value = [
@@ -492,6 +486,16 @@ const SkiaIllustrator = React.forwardRef(
             finalShape,
           ];
           notifyChange(shapes);
+          // MW - Sync the selection outline bounds to the corrected dimensions.
+          if (finalShape.type === 'icon') {
+            selectedShapeBounds.value = {
+              x: finalShape.x,
+              y: finalShape.y,
+              width: finalShape.width,
+              height: finalShape.height,
+            };
+            notifyChange(selectedShapeBounds);
+          }
         }
         // MW - Stamp the active layer onto the shape so it renders in the
         // correct layer group. Text shapes always stay on 'text'.
@@ -532,6 +536,7 @@ const SkiaIllustrator = React.forwardRef(
             selectedShapeStart,
             selectedShapeBounds,
             selectedShapeRotation,
+            pinchStartDimensions,
             shapes,
             onSelectedShapeChange: notifySelectedShapeChange,
             onBeforeShapeMutation,
@@ -551,6 +556,7 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
+          pinchStartDimensions,
           shapes,
           notifySelectedShapeChange,
           onBeforeShapeMutation,
@@ -710,6 +716,7 @@ const SkiaIllustrator = React.forwardRef(
             panSelectionGesture,
             rotateSelectionGesture,
             tapSelectionGesture,
+            pinchResizeGesture,
             doubleTapTextGesture,
             dismissKeyboardGesture
           );
@@ -723,6 +730,7 @@ const SkiaIllustrator = React.forwardRef(
             tapPlaceShapeGesture,
             panSelectionGesture,
             rotateSelectionGesture,
+            pinchResizeGesture,
             doubleTapTextGesture,
             dismissKeyboardGesture
           );
@@ -731,6 +739,7 @@ const SkiaIllustrator = React.forwardRef(
             placeTextGesture,
             panSelectionGesture,
             rotateSelectionGesture,
+            pinchResizeGesture,
             doubleTapTextGesture,
             dismissKeyboardGesture
           );
@@ -750,6 +759,7 @@ const SkiaIllustrator = React.forwardRef(
       tapPlaceShapeGesture,
       doubleTapTextGesture,
       dismissKeyboardGesture,
+      pinchResizeGesture,
     ]);
 
     const paperRect = rect(0, 0, resolvedCanvas.width, resolvedCanvas.height);
@@ -763,7 +773,6 @@ const SkiaIllustrator = React.forwardRef(
       () => (selectedShapeBounds.value?.y ?? 0) - SELECTION_OFFSET
     );
     const selectionWidth = useDerivedValue(() => {
-
       const id = selectedShapeId.value;
       if (id && mountedShapeIds.value.findIndex((mid) => mid === id) === -1) {
         return 0;
@@ -964,28 +973,25 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Create a new user layer inserted above 'shapes' (before 'text').
     // The caller can supply a display name; it becomes the active layer.
-    const addLayer = React.useCallback(
-      (name) => {
-        const id = `layer-${Date.now()}`;
-        const displayName = name || 'Layer';
-        setLayers((prev) => {
-          const textIdx = prev.findIndex((l) => l.id === 'text');
-          const insertAt = textIdx === -1 ? prev.length : textIdx;
-          const next = [...prev];
-          next.splice(insertAt, 0, { id, name: displayName });
-          return next;
-        });
-        setActiveLayerId(id);
-        return id;
-      },
-      []
-    );
+    const addLayer = React.useCallback((name) => {
+      const id = `layer-${Date.now()}`;
+      const displayName = name || 'Layer';
+      setLayers((prev) => {
+        const textIdx = prev.findIndex((l) => l.id === 'text');
+        const insertAt = textIdx === -1 ? prev.length : textIdx;
+        const next = [...prev];
+        next.splice(insertAt, 0, { id, name: displayName });
+        return next;
+      });
+      setActiveLayerId(id);
+      return id;
+    }, []);
 
     // MW - Remove a user layer. Built-in layers ('drawing', 'shapes', 'text')
     // are protected. Shapes on the removed layer are reassigned to 'shapes'.
     const removeLayer = React.useCallback(
       (layerId) => {
-        const PROTECTED = ['drawing', 'shapes', 'text'];
+        const PROTECTED = ['underlayer', 'drawing', 'shapes', 'text'];
         if (PROTECTED.includes(layerId)) return;
         // Reassign orphaned shapes to the default shapes layer.
         const next = shapes.value.map((s) =>
@@ -1101,7 +1107,13 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory(buildSnapshot(currentShapes));
         setAllStrokesPath((prev) => [
           ...prev,
-          { path: flatPath, colour: shape.colour ?? 'black', isEraser: false, thickness: 2, isFilled },
+          {
+            path: flatPath,
+            colour: shape.colour ?? 'black',
+            isEraser: false,
+            thickness: 2,
+            isFilled,
+          },
         ]);
         const next = currentShapes.filter((s) => s.id !== shapeId);
         shapes.value = next;
@@ -1143,8 +1155,19 @@ const SkiaIllustrator = React.forwardRef(
           }
         }
         if (prevIdx === -1) {
-          // Already at the back of its layer — flatten into the drawing layer.
-          flattenShape(shapeId);
+          if (shapeLayer === 'underlayer') {
+            // Already behind all paint strokes — flatten into the drawing layer.
+            flattenShape(shapeId);
+          } else {
+            // Move to underlayer so the shape renders behind paint strokes.
+            pushHistory(buildSnapshot(currentShapes));
+            const next = currentShapes.map((s) =>
+              s.id === shapeId ? { ...s, layer: 'underlayer' } : s
+            );
+            shapes.value = next;
+            notifyChange(shapes);
+            setShapeList(next);
+          }
           return;
         }
         pushHistory(buildSnapshot(currentShapes));
@@ -1213,6 +1236,98 @@ const SkiaIllustrator = React.forwardRef(
       [shapes, pushHistory, buildSnapshot]
     );
 
+    // MW - Serialize the full canvas state (layers, shapes, strokes) to a JSON
+    // string. Skia Path objects are converted to SVG path strings so the data
+    // is plain-text and can be persisted to any storage the host app chooses.
+    const serializeCanvas = React.useCallback(() => {
+      const serializedStrokes = allStrokesRef.current.map((stroke) => ({
+        pathSvg: stroke.path.toSVGString(),
+        colour: stroke.colour,
+        thickness: stroke.thickness,
+        isEraser: stroke.isEraser,
+        isFilled: stroke.isFilled ?? false,
+      }));
+
+      return JSON.stringify({
+        version: 1,
+        layers: layersRef.current.map((l) => ({ ...l })),
+        shapes: shapes.value,
+        strokes: serializedStrokes,
+      });
+    }, [shapes]);
+
+    // MW - Restore a canvas state previously returned by serializeCanvas.
+    // Accepts either a JSON string or an already-parsed object.
+    const loadCanvas = React.useCallback(
+      (input) => {
+        const data =
+          typeof input === 'string' ? JSON.parse(input) : input;
+
+        if (!data || typeof data !== 'object') {
+          throw new Error('loadCanvas: invalid canvas data');
+        }
+
+        // MW - Snapshot the current state before overwriting so the load is
+        // undoable via the undo stack.
+        pushHistory(buildSnapshot(shapes.value));
+
+        // MW - Reconstruct Skia paths from the stored SVG strings.
+        const restoredStrokes = (data.strokes ?? []).map((s) => ({
+          path:
+            Skia.Path.MakeFromSVGString(s.pathSvg ?? '') ?? Skia.Path.Make(),
+          colour: s.colour ?? 'black',
+          thickness: s.thickness ?? 8,
+          isEraser: s.isEraser ?? false,
+          isFilled: s.isFilled ?? false,
+        }));
+
+        const restoredLayers = data.layers ?? [
+          { id: 'underlayer', name: 'Under Paint' },
+          { id: 'drawing', name: 'Drawing' },
+          { id: 'shapes', name: 'Shapes' },
+          { id: 'text', name: 'Text' },
+        ];
+
+        const restoredShapes = data.shapes ?? [];
+
+        setLayers(restoredLayers);
+        shapes.value = restoredShapes;
+        setShapeList(restoredShapes);
+        notifyChange(shapes);
+        setAllStrokesPath(restoredStrokes);
+
+        // MW - Clear any active selection and in-progress stroke.
+        selectedShapeId.value = null;
+        selectedShapeStart.value = { x: 0, y: 0 };
+        selectedShapeBounds.value = null;
+        selectedShapeRotation.value = 0;
+        notifySelectedShapeChange(null);
+        activeStrokePath.value = Skia.Path.Make();
+        notifyChange(activeStrokePath);
+      },
+      [
+        shapes,
+        selectedShapeId,
+        selectedShapeStart,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        activeStrokePath,
+        pushHistory,
+        buildSnapshot,
+        notifySelectedShapeChange,
+      ]
+    );
+
+    // MW - If initial serialized data was provided (e.g. auto-loaded project),
+    // restore it synchronously before the first paint so the canvas never
+    // appears empty to the user.
+    useLayoutEffect(() => {
+      if (initialData) {
+        loadCanvas(initialData);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const saveCanvasAsImage = async () => {
       const surface = Skia.Surface.MakeOffscreen(
         resolvedCanvas.width,
@@ -1224,8 +1339,11 @@ const SkiaIllustrator = React.forwardRef(
       }
 
       const canvas = surface.getCanvas();
+      // MW - Shape types rendered as strokes (not fills).
+      const strokeStyleTypes = ['line', 'arrow', 'cross', 'check'];
 
-      // Draw the background image if it exists
+      // MW - Draw background image first. It is immutable — eraser strokes
+      // must never punch through to it.
       if (backgroundImage) {
         canvas.drawImageRect(
           backgroundImage,
@@ -1239,7 +1357,10 @@ const SkiaIllustrator = React.forwardRef(
       // always beneath all layers and has already been drawn above.
       layers.forEach((layer) => {
         if (layer.id === 'drawing') {
-          // Draw all committed strokes
+          // MW - saveLayer creates an isolated offscreen compositing buffer.
+          // BlendMode.Clear on eraser strokes only erases within this buffer,
+          // so the background image pixels remain untouched.
+          canvas.saveLayer();
           allStrokesPath.forEach((stroke) => {
             const { path, colour, thickness, isEraser, isFilled } = stroke;
             const paint = Skia.Paint();
@@ -1257,17 +1378,27 @@ const SkiaIllustrator = React.forwardRef(
             }
             canvas.drawPath(path, paint);
           });
+          canvas.restore();
         } else {
           // Draw shapes / text belonging to this layer
           shapes.value
             .filter((s) => getShapeLayer(s) === layer.id)
             .forEach((shape) => {
-              const { x, y, width: w, height: h, colour, rotation, type } = shape;
+              const {
+                x,
+                y,
+                width: w,
+                height: h,
+                colour,
+                rotation,
+                type,
+              } = shape;
               const paint = Skia.Paint();
               paint.setColor(Skia.Color(colour));
-              paint.setStyle(PaintStyle.Fill);
 
               if (type === 'circle') {
+                // MW - Circles are symmetric; rotation has no visual effect.
+                paint.setStyle(PaintStyle.Fill);
                 canvas.drawCircle(x, y, shape.radius ?? 10, paint);
                 return;
               }
@@ -1283,6 +1414,7 @@ const SkiaIllustrator = React.forwardRef(
                   canvas.rotate(rotation ?? 0, x + w / 2, y + h / 2);
                   canvas.translate(x, y);
                   canvas.scale(w / vbW, h / vbH);
+                  paint.setStyle(PaintStyle.Fill);
                   canvas.drawPath(iconSvgPath, paint);
                   canvas.restore();
                 }
@@ -1293,15 +1425,33 @@ const SkiaIllustrator = React.forwardRef(
                 const fontSize = shape.fontSize || 32;
                 const font = Skia.Font(getSharedTypeface(), fontSize);
                 paint.setColor(Skia.Color(colour));
+                // MW - Text pivots around its visual centre (x + w/2, y - h/2),
+                // mirroring the ShapeNode origin calculation.
+                const textH = shape.height ?? fontSize;
+                canvas.save();
+                canvas.rotate(rotation ?? 0, x + (w ?? 0) / 2, y - textH / 2);
                 canvas.drawText(shape.content, x, y, paint, font);
+                canvas.restore();
                 return;
               }
 
-              // Rectangles rotate around their centre.
-              canvas.save();
-              canvas.rotate(rotation ?? 0, x + w / 2, y + h / 2);
-              canvas.drawRect(rect(x, y, w, h), paint);
-              canvas.restore();
+              // MW - All remaining shape types (rect, line, triangle, arrow,
+              // star, diamond, cross, check) are handled via buildFlattenedPath
+              // which bakes rotation directly into the path coordinates, so no
+              // separate canvas.rotate() call is needed.
+              const svgStr = buildFlattenedPath(shape);
+              if (!svgStr) return;
+              const skPath = Skia.Path.MakeFromSVGString(svgStr);
+              if (!skPath) return;
+              if (strokeStyleTypes.includes(type)) {
+                paint.setStyle(PaintStyle.Stroke);
+                paint.setStrokeWidth(2);
+                paint.setStrokeCap(StrokeCap.Round);
+                paint.setStrokeJoin(StrokeJoin.Round);
+              } else {
+                paint.setStyle(PaintStyle.Fill);
+              }
+              canvas.drawPath(skPath, paint);
             });
         }
       });
@@ -1332,16 +1482,112 @@ const SkiaIllustrator = React.forwardRef(
         setBrushSize,
         getCurrentBrushSize: () => activeStrokeThickness.value,
         saveCanvasAsImage,
+        serializeCanvas,
+        loadCanvas,
         setFontSize,
         getCurrentFontSize: () => activeFontSize.value,
         deleteSelectedShape: deletedSelectedShape,
         deletedSelectedShape,
         hasSelectedShape: () => selectedShapeId.value != null,
-        setShape: (type) => setShapeToolType(type),
+        setShape: (type) => {
+          setShapeToolType(type);
+          // MW - If a shape is already selected and we're in shape mode, morph
+          // it into the newly chosen shape type instead of waiting for a tap.
+          if (currentTool === 'shape' && selectedShapeId.value != null) {
+            const shapeId = selectedShapeId.value;
+            const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+            if (shapeIndex !== -1) {
+              pushHistory(buildSnapshot(shapes.value));
+              const existing = shapes.value[shapeIndex];
+              // MW - Build a base shape preserving position, size, colour, rotation, layer.
+              let updatedShape = {
+                ...existing,
+                type,
+                // Remove icon-specific fields when switching away from icon.
+                iconName: undefined,
+                iconPath: undefined,
+                iconViewBox: undefined,
+              };
+              // MW - Convert between circle (cx/cy + radius) and rect-like (x/y + w/h).
+              if (type === 'circle' && existing.type !== 'circle') {
+                const w = existing.width ?? 0;
+                const h = existing.height ?? 0;
+                updatedShape = {
+                  ...updatedShape,
+                  x: existing.x + w / 2,
+                  y: existing.y + h / 2,
+                  radius: Math.min(w, h) / 2,
+                  width: undefined,
+                  height: undefined,
+                };
+              } else if (existing.type === 'circle' && type !== 'circle') {
+                const r = existing.radius ?? 0;
+                updatedShape = {
+                  ...updatedShape,
+                  x: existing.x - r,
+                  y: existing.y - r,
+                  width: r * 2,
+                  height: r * 2,
+                  radius: undefined,
+                };
+              }
+              const updatedShapes = [...shapes.value];
+              updatedShapes[shapeIndex] = updatedShape;
+              shapes.value = updatedShapes;
+              setShapeList(updatedShapes);
+              notifyChange(shapes);
+            }
+          }
+        },
         getCurrentShape: () => shapeToolType,
         setIcon: (iconData) => {
           activeIconDataRef.current = iconData;
           setShapeToolType('icon');
+          // MW - If a shape is already selected and we're in shape mode, update
+          // it to the new icon immediately.
+          if (currentTool === 'shape' && selectedShapeId.value != null) {
+            const shapeId = selectedShapeId.value;
+            const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+            if (shapeIndex !== -1) {
+              pushHistory(buildSnapshot(shapes.value));
+              const existing = shapes.value[shapeIndex];
+              // MW - Convert circle to rect-like bounds if needed.
+              let base = existing;
+              if (existing.type === 'circle') {
+                const r = existing.radius ?? 0;
+                base = { ...existing, x: existing.x - r, y: existing.y - r, width: r * 2, height: r * 2, radius: undefined };
+              }
+              let updatedShape = {
+                ...base,
+                type: 'icon',
+                iconName: iconData.iconName ?? '',
+                iconPath: iconData.iconPath ?? '',
+                iconViewBox: iconData.iconViewBox ?? { width: 512, height: 512 },
+              };
+              // MW - Always recalculate height from the new viewbox ratio so the
+              // icon is never distorted (e.g. swapping a tall icon for a square one).
+              if (updatedShape.iconViewBox) {
+                const vbW = updatedShape.iconViewBox.width;
+                const vbH = updatedShape.iconViewBox.height;
+                if (vbW > 0 && vbH > 0) {
+                  updatedShape = { ...updatedShape, height: updatedShape.width * (vbH / vbW) };
+                }
+              }
+              const updatedShapes = [...shapes.value];
+              updatedShapes[shapeIndex] = updatedShape;
+              shapes.value = updatedShapes;
+              setShapeList(updatedShapes);
+              // MW - Sync selection outline to the corrected bounds.
+              selectedShapeBounds.value = {
+                x: updatedShape.x,
+                y: updatedShape.y,
+                width: updatedShape.width,
+                height: updatedShape.height,
+              };
+              notifyChange(shapes);
+              notifyChange(selectedShapeBounds);
+            }
+          }
         },
         undo,
         redo,
@@ -1358,9 +1604,12 @@ const SkiaIllustrator = React.forwardRef(
         moveLayerUp,
         moveLayerDown,
         // MW - Shape z-order within a layer; default to selected shape when no id given
-        bringShapeForward: (id) => bringShapeForward(id ?? selectedShapeId.value),
-        sendShapeBackward: (id) => sendShapeBackward(id ?? selectedShapeId.value),
-        bringShapeToFront: (id) => bringShapeToFront(id ?? selectedShapeId.value),
+        bringShapeForward: (id) =>
+          bringShapeForward(id ?? selectedShapeId.value),
+        sendShapeBackward: (id) =>
+          sendShapeBackward(id ?? selectedShapeId.value),
+        bringShapeToFront: (id) =>
+          bringShapeToFront(id ?? selectedShapeId.value),
         sendShapeToBack: (id) => sendShapeToBack(id ?? selectedShapeId.value),
         // MW - Grid / ruler toggles
         setGridVisible: (visible) => setShowGrid(visible),
@@ -1403,6 +1652,8 @@ const SkiaIllustrator = React.forwardRef(
         sendShapeBackward,
         bringShapeToFront,
         sendShapeToBack,
+        serializeCanvas,
+        loadCanvas,
         showGrid,
         showRuler,
         rulerUnit,
@@ -1487,7 +1738,9 @@ const SkiaIllustrator = React.forwardRef(
                                 strokeWidth={stroke.thickness || 8}
                                 strokeCap="round"
                                 strokeJoin="round"
-                                blendMode={stroke.isEraser ? 'clear' : 'srcOver'}
+                                blendMode={
+                                  stroke.isEraser ? 'clear' : 'srcOver'
+                                }
                               />
                             )
                           )}
