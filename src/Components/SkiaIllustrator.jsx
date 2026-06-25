@@ -143,6 +143,11 @@ const SkiaIllustrator = React.forwardRef(
       layersRef.current = layers;
     }, [layers]);
 
+    const layerOrder = useSharedValue(layers.map((l) => l.id));
+    useEffect(() => {
+      layerOrder.value = layers.map((l) => l.id);
+    }, [layers, layerOrder]);
+
     useLayoutEffect(() => {
       mountedShapeIds.value = shapeList.map((s) => s.id);
     }, [shapeList, mountedShapeIds]);
@@ -415,6 +420,7 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeRotation,
           pinchStartDimensions,
           shapes,
+          layerOrder,
           onSelectedShapeChange: notifySelectedShapeChange,
           onBeforeShapeMutation,
         }),
@@ -429,6 +435,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeRotation,
         pinchStartDimensions,
         shapes,
+        layerOrder,
         notifySelectedShapeChange,
         onBeforeShapeMutation,
       ]
@@ -550,6 +557,7 @@ const SkiaIllustrator = React.forwardRef(
             selectedShapeRotation,
             pinchStartDimensions,
             shapes,
+            layerOrder,
             onSelectedShapeChange: notifySelectedShapeChange,
             onBeforeShapeMutation,
           }),
@@ -570,6 +578,7 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeRotation,
           pinchStartDimensions,
           shapes,
+          layerOrder,
           notifySelectedShapeChange,
           onBeforeShapeMutation,
         ]

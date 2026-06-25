@@ -1,5 +1,9 @@
 import React from 'react';
-import { useDerivedValue } from 'react-native-reanimated';
+import {
+  useDerivedValue,
+  useSharedValue,
+  useAnimatedReaction,
+} from 'react-native-reanimated';
 import {
   Group,
   Rect,
@@ -49,38 +53,47 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
     [currentShape?.fontSize, typeface]
   );
 
-  // MW - Resolve this node's shape from the shared array exactly once per
-  // update. Every visual property below reads from this single derived value
-  // instead of running its own shapes.value.find(), which turned each shape
-  // update into O(props x shapeCount) array scans.
-  const shapeData = useDerivedValue(
-    () => shapes.value.find((s) => s.id === shapeID) ?? null
-  );
+  // MW - Mirror this node's live geometry into individual PRIMITIVE shared
+  // values via a single useAnimatedReaction. The previous design resolved the
+  // shape through an intermediate object-returning useDerivedValue (`shapeData`)
+  // and read `shapeData.value.x` etc. downstream. Gesture handlers mutate the
+  // shape object IN PLACE and then reassign `shapes.value`, so that
+  // intermediate derived value resolved to the SAME object reference every
+  // frame. Reanimated short-circuits a derived value whose output is
+  // reference-equal, so the downstream x/y/width/rotation derived values never
+  // re-ran during a drag — the shape only jumped to its new position on the
+  // next React render (e.g. when the selection was cleared), while the
+  // selection outline (fed a brand-new bounds object each frame) tracked the
+  // finger. Writing primitives from a reaction (which fires on every `shapes`
+  // change, with no reference-equality skip) makes the shape track the gesture
+  // in real time.
+  const x = useSharedValue(currentShape?.x ?? 0);
+  const y = useSharedValue(currentShape?.y ?? 0);
+  const width = useSharedValue(currentShape?.width ?? 0);
+  const height = useSharedValue(currentShape?.height ?? 0);
+  const radius = useSharedValue(currentShape?.radius ?? 10);
+  const colour = useSharedValue(currentShape?.colour ?? 'black');
+  const rotation = useSharedValue(currentShape?.rotation ?? 0);
+  const exists = useSharedValue(!!currentShape);
 
-  const x = useDerivedValue(() => {
-    const shape = shapeData.value;
-    return shape ? shape.x : 0;
-  });
-  const y = useDerivedValue(() => {
-    const shape = shapeData.value;
-    return shape ? shape.y : 0;
-  });
-  const width = useDerivedValue(() => {
-    const shape = shapeData.value;
-    return shape ? (shape.width ?? 0) : 0;
-  });
-  const height = useDerivedValue(() => {
-    const shape = shapeData.value;
-    return shape ? (shape.height ?? 0) : 0;
-  });
-  const radius = useDerivedValue(() => {
-    const shape = shapeData.value;
-    return shape ? (shape.radius ?? 10) : 10;
-  });
-  const colour = useDerivedValue(() => {
-    const shape = shapeData.value;
-    return shape ? (shape.colour ?? 'black') : 'black';
-  });
+  useAnimatedReaction(
+    () => shapes.value.find((s) => s.id === shapeID) ?? null,
+    (shape) => {
+      if (!shape) {
+        exists.value = false;
+        return;
+      }
+      exists.value = true;
+      x.value = shape.x;
+      y.value = shape.y;
+      width.value = shape.width ?? 0;
+      height.value = shape.height ?? 0;
+      radius.value = shape.radius ?? 10;
+      colour.value = shape.colour ?? 'black';
+      rotation.value = shape.rotation ?? 0;
+    },
+    [shapeID]
+  );
 
   const linePath = useDerivedValue(() => {
     const sx = x.value;
@@ -154,31 +167,26 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   });
 
   const origin = useDerivedValue(() => {
-    const shape = shapeData.value;
-    if (!shape) return { x: 0, y: 0 };
-
     // MW - Pivot rotation around each shape's true visual centre so it spins in
     // place. The centre differs per type: circles draw from their centre point,
     // and text draws from its baseline (extending right and up), so neither
     // matches the stored width/height box used by rectangles.
-    if (shape.type === 'circle') {
-      return { x: shape.x, y: shape.y };
+    if (shapeType === 'circle') {
+      return { x: x.value, y: y.value };
     }
-    if (shape.type === 'text') {
-      const w = shape.width ?? 0;
-      const h = shape.height ?? shape.fontSize ?? 32;
-      return { x: shape.x + w / 2, y: shape.y - h / 2 };
+    if (shapeType === 'text') {
+      const h = height.value || currentShape?.fontSize || 32;
+      return { x: x.value + width.value / 2, y: y.value - h / 2 };
     }
-    return { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 };
+    return { x: x.value + width.value / 2, y: y.value + height.value / 2 };
   });
 
   const transform = useDerivedValue(() => {
-    const shape = shapeData.value;
     // MW - When the shape has been removed from shapes.value but the React
     // ShapeNode hasn't unmounted yet (one-frame gap), collapse to invisible so
     // icons and other shapes don't flash at default/identity-matrix scale.
-    if (!shape) return [{ scale: 0 }];
-    return [{ rotate: ((shape.rotation ?? 0) * Math.PI) / 180 }];
+    if (!exists.value) return [{ scale: 0 }];
+    return [{ rotate: (rotation.value * Math.PI) / 180 }];
   });
 
   // MW - FontAwesome Support :)
@@ -188,14 +196,13 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   }, [currentShape?.iconPath]);
 
   const iconMatrix = useDerivedValue(() => {
-    const shape = shapeData.value;
-    if (!shape || shape.type !== 'icon') return Skia.Matrix();
-    const vbW = shape.iconViewBox?.width ?? 512;
-    const vbH = shape.iconViewBox?.height ?? 512;
-    const sx = (shape.width ?? vbW) / vbW;
-    const sy = (shape.height ?? vbH) / vbH;
+    if (shapeType !== 'icon') return Skia.Matrix();
+    const vbW = currentShape?.iconViewBox?.width ?? 512;
+    const vbH = currentShape?.iconViewBox?.height ?? 512;
+    const sx = (width.value || vbW) / vbW;
+    const sy = (height.value || vbH) / vbH;
     const m = Skia.Matrix();
-    m.translate(shape.x, shape.y);
+    m.translate(x.value, y.value);
     m.scale(sx, sy);
     return m;
   });

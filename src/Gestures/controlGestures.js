@@ -23,6 +23,7 @@ export const createControlGestures = ({
   selectedShapeRotation,
   pinchStartDimensions,
   shapes,
+  layerOrder,
   onSelectedShapeChange,
   onBeforeShapeMutation = null,
 }) => {
@@ -122,6 +123,35 @@ export const createControlGestures = ({
     return hitTestRect(shape, px, py);
   };
 
+  const renderRankOf = (shape, arrayIndex) => {
+    'worklet';
+    const layerId = shape.layer ?? (shape.type === 'text' ? 'text' : 'shapes');
+    const order = layerOrder ? layerOrder.value : null;
+    let layerIndex = 0;
+    if (order) {
+      const found = order.indexOf(layerId);
+      layerIndex = found === -1 ? order.length : found;
+    }
+    return layerIndex * 1000000 + arrayIndex;
+  };
+
+  // MW - Find the top-most rendered shape under a canvas-space point.
+  const pickTopShape = (currentShapes, px, py) => {
+    'worklet';
+    let best = null;
+    let bestRank = -1;
+    for (let i = 0; i < currentShapes.length; i++) {
+      const shape = currentShapes[i];
+      if (!hitTestShape(shape, px, py)) continue;
+      const rank = renderRankOf(shape, i);
+      if (rank > bestRank) {
+        bestRank = rank;
+        best = shape;
+      }
+    }
+    return best;
+  };
+
   const getShapeBounds = (shape) => {
     'worklet';
     if (shape.type === 'circle') {
@@ -151,16 +181,13 @@ export const createControlGestures = ({
       let hitId = null;
       const currentShapes = shapes.value;
 
-      for (let i = currentShapes.length - 1; i >= 0; i--) {
-        const shape = currentShapes[i];
-        if (hitTestShape(shape, x, y)) {
-          hitId = shape.id;
-          selectedShapeStart.value = { x: shape.x, y: shape.y };
-          selectedShapeBounds.value = getShapeBounds(shape);
-          selectedShapeRotation.value =
-            shape.type === 'circle' ? 0 : shape.rotation || 0;
-          break;
-        }
+      const hitShape = pickTopShape(currentShapes, x, y);
+      if (hitShape) {
+        hitId = hitShape.id;
+        selectedShapeStart.value = { x: hitShape.x, y: hitShape.y };
+        selectedShapeBounds.value = getShapeBounds(hitShape);
+        selectedShapeRotation.value =
+          hitShape.type === 'circle' ? 0 : hitShape.rotation || 0;
       }
 
       if (hitId) {
