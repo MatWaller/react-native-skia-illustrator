@@ -102,7 +102,7 @@ export const createSelectionGestures = ({
     if (shape.type === 'line') return hitTestLine(shape, px, py);
     return hitTestRect(shape, px, py);
   };
-  
+
   const renderRankOf = (shape, arrayIndex) => {
     'worklet';
     const layerId = shape.layer ?? (shape.type === 'text' ? 'text' : 'shapes');
