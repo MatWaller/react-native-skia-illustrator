@@ -80,9 +80,17 @@ export const createControlGestures = ({
   const hitTestLine = (shape, px, py) => {
     'worklet';
     const padding = 10;
+    const w = shape.width ?? 0;
+    const h = shape.height ?? 0;
+    // MW - Lines can be drawn in any direction (signed width/height), so
+    // normalise to a min/max box before hit-testing.
+    const minX = Math.min(shape.x, shape.x + w);
+    const maxX = Math.max(shape.x, shape.x + w);
+    const minY = Math.min(shape.y, shape.y + h);
+    const maxY = Math.max(shape.y, shape.y + h);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
     const rot = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const cx = shape.x + shape.width / 2;
-    const cy = shape.y + shape.height / 2;
     const cosA = Math.cos(-rot);
     const sinA = Math.sin(-rot);
     const tx = px - cx;
@@ -90,10 +98,10 @@ export const createControlGestures = ({
     const rx = tx * cosA - ty * sinA + cx;
     const ry = tx * sinA + ty * cosA + cy;
     return (
-      rx >= shape.x - padding &&
-      rx <= shape.x + shape.width + padding &&
-      ry >= shape.y - padding &&
-      ry <= shape.y + shape.height + padding
+      rx >= minX - padding &&
+      rx <= maxX + padding &&
+      ry >= minY - padding &&
+      ry <= maxY + padding
     );
   };
 
@@ -166,11 +174,28 @@ export const createControlGestures = ({
       const h = shape.height ?? shape.fontSize ?? 32;
       return { x: shape.x, y: shape.y - h, width: shape.width ?? 0, height: h };
     }
+    if (shape.type === 'line') {
+      const w = shape.width ?? 0;
+      const h = shape.height ?? 0;
+      return {
+        x: Math.min(shape.x, shape.x + w),
+        y: Math.min(shape.y, shape.y + h),
+        width: Math.abs(w),
+        height: Math.abs(h),
+      };
+    }
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   };
 
   const isPanningViewport = makeMutable(false);
   const lastPinchEndedAt = makeMutable(0);
+  // MW - Rotation start angle (degrees) captured at gesture begin.
+  const rotationStart = makeMutable(0);
+  // MW - Incremental pinch trackers so zoom follows the focal point smoothly
+  // each frame instead of snapping from a fixed baseline.
+  const prevPinchScale = makeMutable(1);
+  const prevFocalX = makeMutable(0);
+  const prevFocalY = makeMutable(0);
 
   const controlPanGesture = Gesture.Pan()
     .minDistance(0)
@@ -255,7 +280,7 @@ export const createControlGestures = ({
     });
 
   const controlPinchGesture = Gesture.Pinch()
-    .onBegin(() => {
+    .onBegin((event) => {
       'worklet';
       if (selectedShapeId.value != null) {
         // MW - Snapshot dimensions at gesture start so onUpdate can scale from
@@ -282,6 +307,9 @@ export const createControlGestures = ({
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
+      prevPinchScale.value = 1;
+      prevFocalX.value = event.focalX;
+      prevFocalY.value = event.focalY;
     })
     .onUpdate((event) => {
       'worklet';
@@ -314,20 +342,32 @@ export const createControlGestures = ({
         notifyChange(selectedShapeBounds);
         return;
       }
-      let nextScale = savedScale.value * event.scale;
+      // MW - Incremental zoom: follow the focal point's movement this frame
+      // (focalDX/DY) then scale around the current focal point. Working from
+      // the live translate/scale each frame keeps the gesture smooth and
+      // prevents the canvas from jumping when the focal point drifts.
+      const scaleDelta = event.scale / prevPinchScale.value;
+      const focalDX = event.focalX - prevFocalX.value;
+      const focalDY = event.focalY - prevFocalY.value;
+
+      let tx = translateX.value + focalDX;
+      let ty = translateY.value + focalDY;
+
+      let nextScale = scale.value * scaleDelta;
       nextScale = Math.min(Math.max(nextScale, MIN_SCALE), MAX_SCALE);
-      const focalX = event.focalX;
-      const focalY = event.focalY;
-      const targetX =
-        focalX -
-        (focalX - savedTranslateX.value) * (nextScale / savedScale.value);
-      const targetY =
-        focalY -
-        (focalY - savedTranslateY.value) * (nextScale / savedScale.value);
-      const clamped = clampTranslations(targetX, targetY, nextScale);
+      const actualScaleDelta = nextScale / scale.value;
+
+      tx = event.focalX - (event.focalX - tx) * actualScaleDelta;
+      ty = event.focalY - (event.focalY - ty) * actualScaleDelta;
+
+      const clamped = clampTranslations(tx, ty, nextScale);
       scale.value = nextScale;
       translateX.value = clamped.x;
       translateY.value = clamped.y;
+
+      prevPinchScale.value = event.scale;
+      prevFocalX.value = event.focalX;
+      prevFocalY.value = event.focalY;
     })
     .onEnd(() => {
       'worklet';
@@ -341,19 +381,32 @@ export const createControlGestures = ({
   const controlRotateGesture = Gesture.Rotation()
     .onBegin(() => {
       'worklet';
-      if (selectedShapeId.value && onBeforeShapeMutation) {
-        runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+      if (!selectedShapeId.value) return;
+      const cs = shapes.value;
+      for (let i = 0; i < cs.length; i++) {
+        if (cs[i].id === selectedShapeId.value) {
+          rotationStart.value = cs[i].rotation ?? 0;
+          break;
+        }
+      }
+      if (onBeforeShapeMutation) {
+        runOnJS(onBeforeShapeMutation)(cs.map((s) => ({ ...s })));
       }
     })
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
+      // MW - event.rotation is the cumulative angle in RADIANS since the
+      // gesture began. Convert to degrees and add to the start rotation so the
+      // shape tracks the fingers 1:1 instead of compounding every frame (the
+      // old code added radians into a degrees field and re-added the running
+      // total each update, causing runaway over-rotation).
+      const nextRotation = rotationStart.value + (event.rotation * 180) / Math.PI;
       const currentShapes = shapes.value;
       for (let i = 0; i < currentShapes.length; i++) {
         if (currentShapes[i].id === selectedShapeId.value) {
-          currentShapes[i].rotation =
-            (currentShapes[i].rotation ?? 0) + event.rotation;
-          selectedShapeRotation.value = currentShapes[i].rotation;
+          currentShapes[i].rotation = nextRotation;
+          selectedShapeRotation.value = nextRotation;
           break;
         }
       }

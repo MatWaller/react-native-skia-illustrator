@@ -30,6 +30,7 @@ import {
   Path,
   Paint,
   Rect,
+  Circle,
   Box,
   BoxShadow,
   rect,
@@ -45,7 +46,7 @@ import GridOverlay from './GridOverlay';
 import RulerOverlay from './RulerOverlay';
 import LoadingOverlay from './LoadingOverlay';
 import SelectionOutline from './SelectionOutline';
-import TextEditingOverlay from './TextEditingOverlay';
+import TextEditingModal from './TextEditingModal';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { useTextEditing } from '../hooks/useTextEditing';
 import {
@@ -66,6 +67,7 @@ const SkiaIllustrator = React.forwardRef(
       initialData = null,
       onToolChange = null,
       onSelectedShapeChange = null,
+      textModalProps = null,
     },
     ref
   ) => {
@@ -111,6 +113,15 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Paint states.
     const shapes = useSharedValue([]);
+
+    // MW - Two-tap line placement: anchor holds the first tapped point (or
+    // null), and pendingLinePreview drives the on-canvas anchor marker.
+    const lineAnchor = useSharedValue(null);
+    const pendingLinePreview = useSharedValue({ active: false, x: 0, y: 0 });
+
+    // MW - Default content used when placing a new text shape. Consumers can
+    // override it through the setText() imperative method.
+    const defaultTextContentRef = React.useRef('New Text');
 
     const [shapeList, setShapeList] = useState(() => shapes.value);
     const [shapeToolType, setShapeToolType] = useState('square');
@@ -388,7 +399,13 @@ const SkiaIllustrator = React.forwardRef(
       notifyChange(selectedShapeBounds);
       notifyChange(selectedShapeRotation);
       notifySelectedShapeChange(null);
-    }, []);
+    }, [
+      selectedShapeId,
+      selectedShapeStart,
+      selectedShapeBounds,
+      selectedShapeRotation,
+      notifySelectedShapeChange,
+    ]);
 
     const viewportMatrix = useDerivedValue(() => {
       const matrix = Skia.Matrix();
@@ -537,6 +554,80 @@ const SkiaIllustrator = React.forwardRef(
       [pushHistory, buildSnapshot, shapes]
     );
 
+    // MW - Drag-to-create: mount a shape that already exists in shapes.value
+    // (added on the UI thread at gesture start). We only push history and add
+    // it to the React shapeList here — geometry keeps updating live on the UI
+    // thread, so we must NOT re-write x/y/width/height (that would fight the
+    // in-progress drag).
+    const beginShapeCreation = React.useCallback(
+      (shape) => {
+        pushHistory(
+          buildSnapshot(shapes.value.filter((s) => s.id !== shape.id))
+        );
+        const layeredShape =
+          shape.type === 'text'
+            ? shape
+            : { ...shape, layer: activeLayerIdRef.current };
+        setShapeList((prev) => [
+          ...prev.filter((s) => s.id !== shape.id),
+          layeredShape,
+        ]);
+      },
+      [pushHistory, buildSnapshot, shapes]
+    );
+
+    // MW - Called when a drag-created shape is released. Stamps the active
+    // layer (and merges icon data) onto the live shape, then syncs the React
+    // shapeList to the final geometry.
+    const finalizeShapeCreation = React.useCallback(
+      (shapeId) => {
+        const idx = shapes.value.findIndex((s) => s.id === shapeId);
+        if (idx === -1) return;
+        let shape = shapes.value[idx];
+        const layerId =
+          shape.type === 'text' ? 'text' : activeLayerIdRef.current;
+        let changed = false;
+
+        if (shape.layer !== layerId) {
+          shape = { ...shape, layer: layerId };
+          changed = true;
+        }
+
+        if (shape.type === 'icon' && activeIconDataRef.current) {
+          const vb = activeIconDataRef.current.iconViewBox ?? {
+            width: 512,
+            height: 512,
+          };
+          shape = {
+            ...shape,
+            iconName: activeIconDataRef.current.iconName ?? '',
+            iconPath: activeIconDataRef.current.iconPath ?? '',
+            iconViewBox: vb,
+          };
+          if (vb.width > 0 && vb.height > 0 && vb.width !== vb.height) {
+            shape = { ...shape, height: shape.width * (vb.height / vb.width) };
+          }
+          changed = true;
+          selectedShapeBounds.value = {
+            x: shape.x,
+            y: shape.y,
+            width: shape.width,
+            height: shape.height,
+          };
+          notifyChange(selectedShapeBounds);
+        }
+
+        if (changed) {
+          const next = [...shapes.value];
+          next[idx] = shape;
+          shapes.value = next;
+          notifyChange(shapes);
+        }
+        setShapeList(shapes.value.map((s) => ({ ...s })));
+      },
+      [shapes, selectedShapeBounds]
+    );
+
     const { controlPanGesture, controlPinchGesture, controlRotateGesture } =
       useMemo(
         () =>
@@ -584,14 +675,17 @@ const SkiaIllustrator = React.forwardRef(
         ]
       );
 
-    const { tapPlaceShapeGesture } = useMemo(
+    const { tapPlaceShapeGesture, dragPlaceShapeGesture } = useMemo(
       () =>
         createShapeGestures({
           currentTool,
           shapeToolType,
           shapes,
           addShape,
+          beginShapeCreation,
+          finalizeShapeCreation,
           onSelectedShapeChange: notifySelectedShapeChange,
+          onBeforeShapeMutation,
           scale,
           translateX,
           translateY,
@@ -604,10 +698,15 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
+          lineAnchor,
+          pendingLinePreview,
         }),
       [
         shapes,
         addShape,
+        beginShapeCreation,
+        finalizeShapeCreation,
+        onBeforeShapeMutation,
         currentTool,
         shapeToolType,
         scale,
@@ -623,6 +722,8 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeBounds,
         selectedShapeRotation,
         notifySelectedShapeChange,
+        lineAnchor,
+        pendingLinePreview,
       ]
     );
 
@@ -652,25 +753,23 @@ const SkiaIllustrator = React.forwardRef(
       buildSnapshot,
     ]);
 
-    // MW - Text editing: state, keyboard handling, addText/startTextEdit
-    // callbacks, and the two gesture recognisers are all owned here.
+    // MW - Text editing: modal state, addText/startTextEdit callbacks, and the
+    // double-tap gesture are all owned here.
     const {
-      editingTextId,
-      editingContent,
-      editingScreenPos,
-      editingTextIdShared,
+      editorVisible,
+      editorMode,
+      editorValue,
       addText,
-      commitTextEdit,
-      onEditingTextChange,
+      onEditorChange,
+      submitEditor,
+      cancelEditor,
       doubleTapTextGesture,
-      dismissKeyboardGesture,
     } = useTextEditing({
       shapes,
       setShapeList,
       scale,
       translateX,
       translateY,
-      savedTranslateY,
       activeFontSize,
       activeStrokeColour,
       selectedShapeId,
@@ -680,7 +779,7 @@ const SkiaIllustrator = React.forwardRef(
       notifySelectedShapeChange,
       pushHistory,
       buildSnapshot,
-      windowHeight,
+      defaultTextRef: defaultTextContentRef,
     });
 
     const { placeTextGesture } = useMemo(
@@ -729,8 +828,7 @@ const SkiaIllustrator = React.forwardRef(
             controlPanGesture,
             controlPinchGesture,
             controlRotateGesture,
-            doubleTapTextGesture,
-            dismissKeyboardGesture
+            doubleTapTextGesture
           );
         case 'selection':
           return Gesture.Simultaneous(
@@ -738,22 +836,23 @@ const SkiaIllustrator = React.forwardRef(
             rotateSelectionGesture,
             tapSelectionGesture,
             pinchResizeGesture,
-            doubleTapTextGesture,
-            dismissKeyboardGesture
+            doubleTapTextGesture
           );
         case 'paint':
         case 'eraser':
-          return Gesture.Simultaneous(paintGesture, dismissKeyboardGesture);
+          return paintGesture;
         case 'shape':
-          // MW - While in shape mode a selected shape can still be moved or
-          // rotated without switching tools.
+          // MW - Drag on empty canvas creates + sizes a shape in real time;
+          // drag on an existing shape moves it (handled inside
+          // dragPlaceShapeGesture). Tap places a default-size shape, selects an
+          // existing one, or drops/finishes a two-tap line. Pinch/rotate keep
+          // working on the selected shape.
           return Gesture.Simultaneous(
+            dragPlaceShapeGesture,
             tapPlaceShapeGesture,
-            panSelectionGesture,
             rotateSelectionGesture,
             pinchResizeGesture,
-            doubleTapTextGesture,
-            dismissKeyboardGesture
+            doubleTapTextGesture
           );
         case 'text':
           return Gesture.Simultaneous(
@@ -761,8 +860,7 @@ const SkiaIllustrator = React.forwardRef(
             panSelectionGesture,
             rotateSelectionGesture,
             pinchResizeGesture,
-            doubleTapTextGesture,
-            dismissKeyboardGesture
+            doubleTapTextGesture
           );
         default:
           return Gesture.Exclusive();
@@ -778,8 +876,8 @@ const SkiaIllustrator = React.forwardRef(
       paintGesture,
       placeTextGesture,
       tapPlaceShapeGesture,
+      dragPlaceShapeGesture,
       doubleTapTextGesture,
-      dismissKeyboardGesture,
       pinchResizeGesture,
     ]);
 
@@ -820,6 +918,30 @@ const SkiaIllustrator = React.forwardRef(
     const selectionTransform = useDerivedValue(() => [
       { rotate: ((selectedShapeRotation.value ?? 0) * Math.PI) / 180 },
     ]);
+
+    // MW - Two-tap line placement marker. Driven entirely on the UI thread;
+    // radius is divided by the current scale so it stays a constant on-screen
+    // size, and collapses to 0 when no anchor is pending.
+    const pendingMarkerCx = useDerivedValue(
+      () => pendingLinePreview.value?.x ?? 0
+    );
+    const pendingMarkerCy = useDerivedValue(
+      () => pendingLinePreview.value?.y ?? 0
+    );
+    const pendingMarkerR = useDerivedValue(() =>
+      pendingLinePreview.value?.active ? 6 / (scale.value || 1) : 0
+    );
+
+    // MW - Reset any pending line anchor when the user leaves the line tool so
+    // a half-placed line can't be completed after switching tools/shapes.
+    useEffect(() => {
+      if (currentTool !== 'shape' || shapeToolType !== 'line') {
+        lineAnchor.value = null;
+        pendingLinePreview.value = { active: false, x: 0, y: 0 };
+        notifyChange(lineAnchor);
+        notifyChange(pendingLinePreview);
+      }
+    }, [currentTool, shapeToolType, lineAnchor, pendingLinePreview]);
 
     // MW - Clear Canvas Function
     const clearCanvas = React.useCallback(() => {
@@ -991,6 +1113,58 @@ const SkiaIllustrator = React.forwardRef(
         notifyChange(selectedShapeBounds);
       }
     };
+
+    // MW - Set the text content. When a text shape is selected its content is
+    // updated (and re-measured) in place; otherwise the value becomes the
+    // default content used the next time a text shape is placed.
+    const setText = React.useCallback(
+      (text) => {
+        const value = text == null ? '' : String(text);
+        const shapeId = selectedShapeId.value;
+
+        if (shapeId) {
+          const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+          if (shapeIndex !== -1 && shapes.value[shapeIndex].type === 'text') {
+            pushHistory(buildSnapshot(shapes.value));
+            const shape = shapes.value[shapeIndex];
+            const { width: tw, height: th } = measureText(
+              value || ' ',
+              shape.fontSize ?? 32
+            );
+            const updatedShape = {
+              ...shape,
+              content: value,
+              width: tw,
+              height: th,
+            };
+            const updatedShapes = [...shapes.value];
+            updatedShapes[shapeIndex] = updatedShape;
+            shapes.value = updatedShapes;
+            setShapeList(updatedShapes);
+            notifyChange(shapes);
+
+            selectedShapeBounds.value = {
+              x: updatedShape.x,
+              y: updatedShape.y - th,
+              width: tw,
+              height: th,
+            };
+            notifyChange(selectedShapeBounds);
+            return;
+          }
+        }
+
+        // No text shape selected — remember it for the next placed text.
+        defaultTextContentRef.current = value || 'New Text';
+      },
+      [
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        pushHistory,
+        buildSnapshot,
+      ]
+    );
 
     // MW - Create a new user layer inserted above 'shapes' (before 'text').
     // The caller can supply a display name; it becomes the active layer.
@@ -1486,8 +1660,8 @@ const SkiaIllustrator = React.forwardRef(
     };
 
     const closeKeyboard = () => {
-      if (editingTextId) {
-        commitTextEdit();
+      if (editorVisible) {
+        cancelEditor();
       }
       Keyboard.dismiss();
     };
@@ -1514,6 +1688,8 @@ const SkiaIllustrator = React.forwardRef(
         loadCanvas,
         setFontSize,
         getCurrentFontSize: () => activeFontSize.value,
+        setText,
+        closeKeyboard,
         deleteSelectedShape: deletedSelectedShape,
         deletedSelectedShape,
         hasSelectedShape: () => selectedShapeId.value != null,
@@ -1666,6 +1842,7 @@ const SkiaIllustrator = React.forwardRef(
         activeStrokeThickness,
         activeFontSize,
         shapeToolType,
+        setText,
         undo,
         redo,
         historySize,
@@ -1694,7 +1871,6 @@ const SkiaIllustrator = React.forwardRef(
           <View
             style={styles.container}
             onLayout={() => setCanvasReady(true)}
-            onPress={closeKeyboard}
           >
             <Canvas style={canvasStyle}>
               <Group matrix={viewportMatrix}>
@@ -1803,6 +1979,13 @@ const SkiaIllustrator = React.forwardRef(
                       </Group>
                     );
                   })}
+                  {/* MW - Two-tap line placement anchor marker. */}
+                  <Circle
+                    cx={pendingMarkerCx}
+                    cy={pendingMarkerCy}
+                    r={pendingMarkerR}
+                    color="#6366f1"
+                  />
                   {/* MW - Selection outline. Always on top of all layers;
                       driven entirely on the UI thread via derived values.
                       Width/height are 0 when nothing is selected. */}
@@ -1820,12 +2003,14 @@ const SkiaIllustrator = React.forwardRef(
             <LoadingOverlay visible={!canvasReady} />
           </View>
         </GestureDetector>
-        <TextEditingOverlay
-          editingTextId={editingTextId}
-          editingScreenPos={editingScreenPos}
-          editingContent={editingContent}
-          onChangeText={onEditingTextChange}
-          onCommit={commitTextEdit}
+        <TextEditingModal
+          visible={editorVisible}
+          mode={editorMode}
+          value={editorValue}
+          onChangeText={onEditorChange}
+          onSubmit={submitEditor}
+          onCancel={cancelEditor}
+          {...(textModalProps ?? {})}
         />
       </GestureHandlerRootView>
     );

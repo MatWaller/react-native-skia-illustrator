@@ -166,6 +166,7 @@ function AppContent() {
             initialData={initialProjectData}
             onToolChange={handleToolChange}
             onSelectedShapeChange={setHasSelectedShape}
+            textModalProps={textModalProps}
           />
           <TopHud
             activeMeta={activeMeta}
@@ -217,3 +218,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#dfdfdf',
   },
 });
+
+// MW - Themed text-entry modal matching the example's dark/indigo UI. Passed
+// straight through to <SkiaIllustrator textModalProps={...} />.
+const textModalProps = {
+  createTitle: 'Add text',
+  editTitle: 'Edit text',
+  placeholder: 'Type something…',
+  submitLabel: 'Place',
+  cardStyle: {
+    backgroundColor: 'rgba(20,20,28,0.98)',
+    borderRadius: 18,
+  },
+  titleStyle: {
+    color: '#ffffff',
+  },
+  inputStyle: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.18)',
+    color: '#ffffff',
+  },
+  submitButtonStyle: {
+    backgroundColor: '#6366f1',
+  },
+  cancelButtonStyle: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  cancelButtonTextStyle: {
+    color: 'rgba(255,255,255,0.9)',
+  },
+  placeholderTextColor: 'rgba(255,255,255,0.4)',
+};

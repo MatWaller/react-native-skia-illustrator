@@ -1,6 +1,6 @@
 import { Gesture } from 'react-native-gesture-handler';
 import { notifyChange } from '@shopify/react-native-skia';
-import { runOnJS } from 'react-native-reanimated';
+import { makeMutable, runOnJS } from 'react-native-reanimated';
 
 export const createShapeGestures = ({
   currentTool,
@@ -16,7 +16,12 @@ export const createShapeGestures = ({
   activeStrokeThickness,
   shapes,
   onSelectedShapeChange,
+  onBeforeShapeMutation = null,
   addShape,
+  beginShapeCreation,
+  finalizeShapeCreation,
+  lineAnchor,
+  pendingLinePreview,
 }) => {
   const getCanvasPoint = (x, y) => {
     'worklet';
@@ -59,9 +64,17 @@ export const createShapeGestures = ({
   const hitTestLine = (shape, px, py) => {
     'worklet';
     const padding = 10;
+    const w = shape.width ?? 0;
+    const h = shape.height ?? 0;
+    // MW - Lines can be drawn in any direction (signed width/height), so
+    // normalise to a min/max box before hit-testing.
+    const minX = Math.min(shape.x, shape.x + w);
+    const maxX = Math.max(shape.x, shape.x + w);
+    const minY = Math.min(shape.y, shape.y + h);
+    const maxY = Math.max(shape.y, shape.y + h);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
     const rotationInRadians = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const centerX = shape.x + shape.width / 2;
-    const centerY = shape.y + shape.height / 2;
     const tx = px - centerX;
     const ty = py - centerY;
     const cosA = Math.cos(-rotationInRadians);
@@ -69,10 +82,10 @@ export const createShapeGestures = ({
     const rx = tx * cosA - ty * sinA + centerX;
     const ry = tx * sinA + ty * cosA + centerY;
     return (
-      rx >= shape.x - padding &&
-      rx <= shape.x + shape.width + padding &&
-      ry >= shape.y - padding &&
-      ry <= shape.y + shape.height + padding
+      rx >= minX - padding &&
+      rx <= maxX + padding &&
+      ry >= minY - padding &&
+      ry <= maxY + padding
     );
   };
 
@@ -116,6 +129,16 @@ export const createShapeGestures = ({
       const h = shape.height ?? shape.fontSize ?? 32;
       return { x: shape.x, y: shape.y - h, width: shape.width ?? 0, height: h };
     }
+    if (shape.type === 'line') {
+      const w = shape.width ?? 0;
+      const h = shape.height ?? 0;
+      return {
+        x: Math.min(shape.x, shape.x + w),
+        y: Math.min(shape.y, shape.y + h),
+        width: Math.abs(w),
+        height: Math.abs(h),
+      };
+    }
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   };
 
@@ -133,6 +156,46 @@ export const createShapeGestures = ({
 
       const currentShapes = shapes.value;
 
+      // MW - Two-tap line placement: if an anchor was dropped on a previous
+      // tap, this tap is the line's end point. Build the line from the anchor
+      // to here (signed width/height preserves the drawn direction).
+      if (shapeToolType === 'line' && lineAnchor && lineAnchor.value != null) {
+        const a = lineAnchor.value;
+        const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const lineShape = {
+          id: `line-${ts}`,
+          type: 'line',
+          x: a.x,
+          y: a.y,
+          width: x - a.x,
+          height: y - a.y,
+          colour: activeStrokeColour.value,
+          rotation: 0,
+        };
+        lineAnchor.value = null;
+        if (pendingLinePreview) {
+          pendingLinePreview.value = { active: false, x: 0, y: 0 };
+          notifyChange(pendingLinePreview);
+        }
+        notifyChange(lineAnchor);
+
+        shapes.value = [...currentShapes, lineShape];
+        selectedShapeId.value = lineShape.id;
+        selectedShapeStart.value = { x: lineShape.x, y: lineShape.y };
+        selectedShapeBounds.value = getShapeBounds(lineShape);
+        selectedShapeRotation.value = 0;
+        notifyChange(selectedShapeId);
+        notifyChange(selectedShapeBounds);
+        notifyChange(selectedShapeRotation);
+        if (onSelectedShapeChange) {
+          runOnJS(onSelectedShapeChange)(lineShape.id);
+        }
+        if (addShape) {
+          runOnJS(addShape)(lineShape);
+        }
+        return;
+      }
+
       for (let i = currentShapes.length - 1; i >= 0; i--) {
         const shape = currentShapes[i];
         if (hitTestShape(shape, x, y)) {
@@ -149,6 +212,21 @@ export const createShapeGestures = ({
           }
           return;
         }
+      }
+
+      // MW - Line tool, no anchor yet: drop the first point and wait for the
+      // second tap to complete the line (a drag also works via the pan
+      // gesture). A preview marker is shown at the anchor.
+      if (shapeToolType === 'line') {
+        if (lineAnchor) {
+          lineAnchor.value = { x, y };
+          notifyChange(lineAnchor);
+        }
+        if (pendingLinePreview) {
+          pendingLinePreview.value = { active: true, x, y };
+          notifyChange(pendingLinePreview);
+        }
+        return;
       }
 
       // MW - Scale shape dimensions from the brush-size slider (range 2–40).
@@ -318,7 +396,239 @@ export const createShapeGestures = ({
       }
     });
 
+  // MW - Drag-to-place: press on empty canvas and drag to size a new shape in
+  // real time (anchored at the press point). Pressing on an existing shape
+  // moves it instead. Pinch/rotate still work via the simultaneous gestures.
+  const createStart = makeMutable({ x: 0, y: 0 });
+  const createMode = makeMutable('none'); // 'none' | 'move' | 'create'
+  const creatingShapeId = makeMutable(null);
+
+  const dragPlaceShapeGesture = Gesture.Pan()
+    .enabled(currentTool === 'shape')
+    .minDistance(6)
+    .maxPointers(1)
+    .onBegin((event) => {
+      'worklet';
+      const { x, y } = getCanvasPoint(event.x, event.y);
+      const currentShapes = shapes.value;
+      let hit = null;
+      for (let i = currentShapes.length - 1; i >= 0; i--) {
+        if (hitTestShape(currentShapes[i], x, y)) {
+          hit = currentShapes[i];
+          break;
+        }
+      }
+      if (hit) {
+        // Touching an existing shape — set up a move.
+        createMode.value = 'move';
+        creatingShapeId.value = null;
+        selectedShapeId.value = hit.id;
+        selectedShapeStart.value = { x: hit.x, y: hit.y };
+        selectedShapeBounds.value = getShapeBounds(hit);
+        selectedShapeRotation.value =
+          hit.type === 'circle' ? 0 : hit.rotation || 0;
+        notifyChange(selectedShapeId);
+        notifyChange(selectedShapeBounds);
+        notifyChange(selectedShapeRotation);
+        if (onSelectedShapeChange) {
+          runOnJS(onSelectedShapeChange)(hit.id);
+        }
+      } else {
+        // Empty canvas — prepare to create on drag (deferred to onStart so a
+        // plain tap doesn't create a zero-size shape).
+        createMode.value = 'create';
+        createStart.value = { x, y };
+        creatingShapeId.value = null;
+      }
+    })
+    .onStart(() => {
+      'worklet';
+      if (createMode.value === 'move') {
+        if (selectedShapeId.value && onBeforeShapeMutation) {
+          runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+        }
+        return;
+      }
+      if (createMode.value !== 'create') return;
+
+      const a = createStart.value;
+      if (a.x < 0 || a.y < 0) {
+        createMode.value = 'none';
+        return;
+      }
+
+      // MW - Line tool: a drag overrides any pending two-tap anchor.
+      if (lineAnchor) {
+        lineAnchor.value = null;
+        notifyChange(lineAnchor);
+      }
+      if (pendingLinePreview) {
+        pendingLinePreview.value = { active: false, x: 0, y: 0 };
+        notifyChange(pendingLinePreview);
+      }
+
+      const colour = activeStrokeColour.value;
+      const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const id = `${shapeToolType}-${ts}`;
+
+      let newShape;
+      if (shapeToolType === 'circle') {
+        newShape = {
+          id,
+          type: 'circle',
+          x: a.x,
+          y: a.y,
+          radius: 1,
+          colour,
+          rotation: 0,
+        };
+      } else if (shapeToolType === 'line') {
+        newShape = {
+          id,
+          type: 'line',
+          x: a.x,
+          y: a.y,
+          width: 0,
+          height: 0,
+          colour,
+          rotation: 0,
+        };
+      } else if (shapeToolType === 'icon') {
+        newShape = {
+          id,
+          type: 'icon',
+          x: a.x,
+          y: a.y,
+          width: 1,
+          height: 1,
+          colour,
+          rotation: 0,
+          iconName: '',
+          iconPath: '',
+          iconViewBox: { width: 512, height: 512 },
+        };
+      } else {
+        newShape = {
+          id,
+          type: shapeToolType,
+          x: a.x,
+          y: a.y,
+          width: 1,
+          height: 1,
+          colour,
+          rotation: 0,
+        };
+      }
+
+      creatingShapeId.value = id;
+      shapes.value = [...shapes.value, newShape];
+      selectedShapeId.value = id;
+      selectedShapeStart.value = { x: newShape.x, y: newShape.y };
+      selectedShapeRotation.value = 0;
+      selectedShapeBounds.value = getShapeBounds(newShape);
+      notifyChange(selectedShapeId);
+      notifyChange(selectedShapeBounds);
+      notifyChange(selectedShapeRotation);
+      if (onSelectedShapeChange) {
+        runOnJS(onSelectedShapeChange)(id);
+      }
+      // MW - Mount the shape (and snapshot history) on the JS thread. Geometry
+      // keeps updating live on the UI thread below.
+      if (beginShapeCreation) {
+        runOnJS(beginShapeCreation)(newShape);
+      }
+    })
+    .onUpdate((event) => {
+      'worklet';
+      if (createMode.value === 'move') {
+        if (!selectedShapeId.value) return;
+        const newX =
+          selectedShapeStart.value.x + event.translationX / (scale.value || 1);
+        const newY =
+          selectedShapeStart.value.y + event.translationY / (scale.value || 1);
+        const cs = shapes.value;
+        for (let i = 0; i < cs.length; i++) {
+          if (cs[i].id === selectedShapeId.value) {
+            cs[i].x = newX;
+            cs[i].y = newY;
+            selectedShapeBounds.value = getShapeBounds(cs[i]);
+            break;
+          }
+        }
+        shapes.value = [...cs];
+        notifyChange(shapes);
+        notifyChange(selectedShapeBounds);
+        return;
+      }
+
+      if (createMode.value !== 'create' || creatingShapeId.value == null) return;
+
+      const a = createStart.value;
+      const b = getCanvasPoint(event.x, event.y);
+      const cs = shapes.value;
+      for (let i = 0; i < cs.length; i++) {
+        if (cs[i].id !== creatingShapeId.value) continue;
+        const s = cs[i];
+        if (s.type === 'circle') {
+          const minX = Math.min(a.x, b.x);
+          const minY = Math.min(a.y, b.y);
+          const w = Math.abs(b.x - a.x);
+          const h = Math.abs(b.y - a.y);
+          s.x = minX + w / 2;
+          s.y = minY + h / 2;
+          s.radius = Math.max(w, h) / 2;
+        } else if (s.type === 'line') {
+          // Signed extent keeps the line pointing from anchor to finger.
+          s.x = a.x;
+          s.y = a.y;
+          s.width = b.x - a.x;
+          s.height = b.y - a.y;
+        } else {
+          s.x = Math.min(a.x, b.x);
+          s.y = Math.min(a.y, b.y);
+          s.width = Math.abs(b.x - a.x);
+          s.height = Math.abs(b.y - a.y);
+        }
+        selectedShapeBounds.value = getShapeBounds(s);
+        break;
+      }
+      shapes.value = [...cs];
+      notifyChange(shapes);
+      notifyChange(selectedShapeBounds);
+    })
+    .onEnd(() => {
+      'worklet';
+      if (createMode.value === 'create' && creatingShapeId.value != null) {
+        const id = creatingShapeId.value;
+        const cs = shapes.value;
+        for (let i = 0; i < cs.length; i++) {
+          if (cs[i].id !== id) continue;
+          const s = cs[i];
+          // MW - Guard against zero/near-zero sizes from a tiny drag.
+          if (s.type === 'circle') {
+            if ((s.radius ?? 0) < 2) s.radius = 2;
+          } else if (s.type === 'line') {
+            if (s.width === 0 && s.height === 0) s.width = 1;
+          } else {
+            if (Math.abs(s.width ?? 0) < 4) s.width = 4;
+            if (Math.abs(s.height ?? 0) < 4) s.height = 4;
+          }
+          selectedShapeBounds.value = getShapeBounds(s);
+          break;
+        }
+        shapes.value = [...cs];
+        notifyChange(shapes);
+        notifyChange(selectedShapeBounds);
+        if (finalizeShapeCreation) {
+          runOnJS(finalizeShapeCreation)(id);
+        }
+      }
+      createMode.value = 'none';
+      creatingShapeId.value = null;
+    });
+
   return {
     tapPlaceShapeGesture,
+    dragPlaceShapeGesture,
   };
 };

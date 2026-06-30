@@ -16,18 +16,24 @@ export const getShapeAABB = (shape) => {
   if (type === 'text') {
     return { x, y: y - h, width: w, height: h };
   }
-  if (!rotation) return { x, y, width: w, height: h };
+  // MW - Normalise negative dimensions (lines can be drawn right→left or
+  // bottom→top, giving signed width/height) so the AABB is always valid.
+  const nx = w < 0 ? x + w : x;
+  const ny = h < 0 ? y + h : y;
+  const nw = Math.abs(w);
+  const nh = Math.abs(h);
+  if (!rotation) return { x: nx, y: ny, width: nw, height: nh };
   // MW - For rotated shapes, compute the axis-aligned bounding box of the four corners (Massively overkill for the eraser, but it's a one-time calculation per shape and avoids any Skia calls).
-  const cx = x + w / 2;
-  const cy = y + h / 2;
+  const cx = nx + nw / 2;
+  const cy = ny + nh / 2;
   const θ = (rotation * Math.PI) / 180;
   const cosA = Math.cos(θ);
   const sinA = Math.sin(θ);
   const corners = [
-    [x, y],
-    [x + w, y],
-    [x + w, y + h],
-    [x, y + h],
+    [nx, ny],
+    [nx + nw, ny],
+    [nx + nw, ny + nh],
+    [nx, ny + nh],
   ].map(([px, py]) => {
     const dx = px - cx;
     const dy = py - cy;

@@ -1,6 +1,6 @@
 import { Gesture } from 'react-native-gesture-handler';
 import { notifyChange } from '@shopify/react-native-skia';
-import { runOnJS } from 'react-native-reanimated';
+import { makeMutable, runOnJS } from 'react-native-reanimated';
 
 export const createSelectionGestures = ({
   currentTool,
@@ -58,9 +58,17 @@ export const createSelectionGestures = ({
   const hitTestLine = (shape, px, py) => {
     'worklet';
     const padding = 10;
+    const w = shape.width ?? 0;
+    const h = shape.height ?? 0;
+    // MW - Lines can be drawn in any direction (signed width/height), so
+    // normalise to a min/max box before hit-testing.
+    const minX = Math.min(shape.x, shape.x + w);
+    const maxX = Math.max(shape.x, shape.x + w);
+    const minY = Math.min(shape.y, shape.y + h);
+    const maxY = Math.max(shape.y, shape.y + h);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
     const rotationInRadians = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const centerX = shape.x + shape.width / 2;
-    const centerY = shape.y + shape.height / 2;
     const tx = px - centerX;
     const ty = py - centerY;
     const cosA = Math.cos(-rotationInRadians);
@@ -68,10 +76,10 @@ export const createSelectionGestures = ({
     const rx = tx * cosA - ty * sinA + centerX;
     const ry = tx * sinA + ty * cosA + centerY;
     return (
-      rx >= shape.x - padding &&
-      rx <= shape.x + shape.width + padding &&
-      ry >= shape.y - padding &&
-      ry <= shape.y + shape.height + padding
+      rx >= minX - padding &&
+      rx <= maxX + padding &&
+      ry >= minY - padding &&
+      ry <= maxY + padding
     );
   };
 
@@ -146,8 +154,22 @@ export const createSelectionGestures = ({
       const h = shape.height ?? shape.fontSize ?? 32;
       return { x: shape.x, y: shape.y - h, width: shape.width ?? 0, height: h };
     }
+    if (shape.type === 'line') {
+      const w = shape.width ?? 0;
+      const h = shape.height ?? 0;
+      return {
+        x: Math.min(shape.x, shape.x + w),
+        y: Math.min(shape.y, shape.y + h),
+        width: Math.abs(w),
+        height: Math.abs(h),
+      };
+    }
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   };
+
+  // MW - Rotation start angle (degrees) captured at gesture begin so updates
+  // apply the cumulative gesture delta to a fixed baseline.
+  const rotationStart = makeMutable(0);
 
   const pinchResizeGesture = Gesture.Pinch()
     .onBegin(() => {
@@ -300,21 +322,36 @@ export const createSelectionGestures = ({
   const rotateSelectionGesture = Gesture.Rotation()
     .onBegin(() => {
       'worklet';
-      if (selectedShapeId.value && onBeforeShapeMutation) {
-        runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+      if (!selectedShapeId.value) return;
+      const cs = shapes.value;
+      for (let i = 0; i < cs.length; i++) {
+        if (cs[i].id === selectedShapeId.value) {
+          rotationStart.value = cs[i].rotation ?? 0;
+          break;
+        }
+      }
+      if (onBeforeShapeMutation) {
+        runOnJS(onBeforeShapeMutation)(cs.map((s) => ({ ...s })));
       }
     })
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
 
+      // MW - event.rotation is the cumulative angle in RADIANS since the
+      // gesture began. Convert to degrees and add to the captured start angle
+      // so rotation tracks the fingers 1:1 (the old code added radians into a
+      // degrees field and compounded the running total every frame).
+      const nextRotation =
+        rotationStart.value + (event.rotation * 180) / Math.PI;
+
       const currentShapes = shapes.value;
 
       for (let i = 0; i < currentShapes.length; i++) {
         if (currentShapes[i].id === selectedShapeId.value) {
-          currentShapes[i].rotation += event.rotation;
+          currentShapes[i].rotation = nextRotation;
           // MW - Keep the outline rotation in sync with the shape.
-          selectedShapeRotation.value = currentShapes[i].rotation;
+          selectedShapeRotation.value = nextRotation;
           break;
         }
       }
