@@ -19,7 +19,11 @@ import { createShapeGestures } from '../Gestures/shapeGesture';
 import { createControlGestures } from '../Gestures/controlGestures';
 
 // Reanimated Imports
-import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
+import {
+  useSharedValue,
+  useDerivedValue,
+  useFrameCallback,
+} from 'react-native-reanimated';
 
 // Skia Imports
 import {
@@ -104,10 +108,19 @@ const SkiaIllustrator = React.forwardRef(
 
     const selectedShapeId = useSharedValue(null);
     const selectedShapeStart = useSharedValue({ x: 0, y: 0 });
+    // MW - Edge auto-pan: the active drag exposes its live finger delta and an
+    // edge velocity so the frame callback can scroll the camera (and carry the
+    // shape) when a shape is dragged to the screen edge.
+    const draggingShape = useSharedValue(false);
+    const dragLastTransX = useSharedValue(0);
+    const dragLastTransY = useSharedValue(0);
+    const edgePanX = useSharedValue(0);
+    const edgePanY = useSharedValue(0);
     const pinchStartDimensions = useSharedValue({
       width: 0,
       height: 0,
       radius: 0,
+      fontSize: 0,
     });
     const mountedShapeIds = useSharedValue([]);
 
@@ -124,8 +137,89 @@ const SkiaIllustrator = React.forwardRef(
     const defaultTextContentRef = React.useRef('New Text');
 
     const [shapeList, setShapeList] = useState(() => shapes.value);
-    const [shapeToolType, setShapeToolType] = useState('square');
+    // MW - null = no shape/icon picked in the toolbar yet. While null, a drag in
+    // shape mode pans the viewport instead of drag-placing a shape. setShape()/
+    // setIcon() set this to a concrete type, which re-enables drag-to-place.
+    const [shapeToolType, setShapeToolType] = useState(null);
     const [canvasReady, setCanvasReady] = useState(false);
+
+    // MW - Drives camera scroll while a shape is dragged to a screen edge. The
+    // shape is carried along (kept under the finger) by shifting its drag start
+    // by the applied camera delta so the active pan gesture stays consistent.
+    const EDGE_PAN_PADDING = 150;
+    useFrameCallback(() => {
+      'worklet';
+      if (!draggingShape.value) return;
+      const vx = edgePanX.value;
+      const vy = edgePanY.value;
+      if (vx === 0 && vy === 0) return;
+      const id = selectedShapeId.value;
+      if (!id) return;
+
+      const s = scale.value || 1;
+      const minTX = EDGE_PAN_PADDING - resolvedCanvas.width * s;
+      const maxTX = windowWidth - EDGE_PAN_PADDING;
+      const minTY = EDGE_PAN_PADDING - resolvedCanvas.height * s;
+      const maxTY = windowHeight - EDGE_PAN_PADDING;
+
+      const nTX = Math.min(Math.max(translateX.value + vx, minTX), maxTX);
+      const nTY = Math.min(Math.max(translateY.value + vy, minTY), maxTY);
+      const dX = nTX - translateX.value;
+      const dY = nTY - translateY.value;
+      if (dX === 0 && dY === 0) return;
+
+      translateX.value = nTX;
+      translateY.value = nTY;
+
+      const start = selectedShapeStart.value;
+      selectedShapeStart.value = { x: start.x - dX / s, y: start.y - dY / s };
+
+      const cs = shapes.value;
+      for (let i = 0; i < cs.length; i++) {
+        if (cs[i].id !== id) continue;
+        const shape = cs[i];
+        shape.x = selectedShapeStart.value.x + dragLastTransX.value / s;
+        shape.y = selectedShapeStart.value.y + dragLastTransY.value / s;
+        let bounds;
+        if (shape.type === 'circle') {
+          bounds = {
+            x: shape.x - shape.radius,
+            y: shape.y - shape.radius,
+            width: shape.radius * 2,
+            height: shape.radius * 2,
+          };
+        } else if (shape.type === 'text') {
+          const h = shape.height ?? shape.fontSize ?? 32;
+          bounds = {
+            x: shape.x,
+            y: shape.y - h,
+            width: shape.width ?? 0,
+            height: h,
+          };
+        } else if (shape.type === 'line') {
+          const w = shape.width ?? 0;
+          const h = shape.height ?? 0;
+          bounds = {
+            x: Math.min(shape.x, shape.x + w),
+            y: Math.min(shape.y, shape.y + h),
+            width: Math.abs(w),
+            height: Math.abs(h),
+          };
+        } else {
+          bounds = {
+            x: shape.x,
+            y: shape.y,
+            width: shape.width,
+            height: shape.height,
+          };
+        }
+        selectedShapeBounds.value = bounds;
+        break;
+      }
+      shapes.value = [...cs];
+      notifyChange(shapes);
+      notifyChange(selectedShapeBounds);
+    }, true);
 
     // MW - Ruler & grid visibility + unit
     const [showGrid, setShowGrid] = useState(_showGrid);
@@ -241,9 +335,12 @@ const SkiaIllustrator = React.forwardRef(
         // MW - Snapshot before this stroke is committed.
         pushHistory(buildSnapshot(shapes.value));
 
-        // MW - When erasing: detect shapes whose AABB overlaps the eraser and flatten em :)
-
-        const flattenedStrokes = [];
+        // MW - When erasing: any shape/icon/text whose AABB overlaps the
+        // eraser stroke is deleted outright. (Previously overlapping shapes
+        // were flattened into the drawing layer and then partially erased;
+        // dragging the eraser over a shape now simply removes the whole shape.)
+        // The eraser stroke itself is still committed below so it continues to
+        // erase freehand paint strokes.
         if (isEraser) {
           const eb = path.getBounds();
           const pad = thickness / 2;
@@ -261,26 +358,7 @@ const SkiaIllustrator = React.forwardRef(
               aabb.x + aabb.width > ex &&
               aabb.y < ey + eh &&
               aabb.y + aabb.height > ey;
-            if (!overlaps) continue;
-
-            let flatPath;
-            if (shape.type === 'circle') {
-              flatPath = Skia.Path.Make();
-              flatPath.addCircle(shape.x, shape.y, shape.radius ?? 10);
-            } else {
-              const svgStr = buildFlattenedPath(shape);
-              flatPath =
-                Skia.Path.MakeFromSVGString(svgStr) ?? Skia.Path.Make();
-            }
-            const strokeStyleTypes = ['line', 'arrow', 'cross', 'check'];
-            flattenedStrokes.push({
-              path: flatPath,
-              colour: shape.colour ?? 'black',
-              isEraser: false,
-              thickness: 2,
-              isFilled: !strokeStyleTypes.includes(shape.type),
-            });
-            hitIds.push(shape.id);
+            if (overlaps) hitIds.push(shape.id);
           }
 
           if (hitIds.length > 0) {
@@ -299,10 +377,9 @@ const SkiaIllustrator = React.forwardRef(
           }
         }
 
-        // Add flattened shapes + eraser stroke in one update to guarantee order.
+        // Commit the eraser/paint stroke.
         setAllStrokesPath((prev) => [
           ...prev,
-          ...flattenedStrokes,
           { path, colour, isEraser, thickness },
         ]);
         if (resetTimer.current) clearTimeout(resetTimer.current);
@@ -436,11 +513,18 @@ const SkiaIllustrator = React.forwardRef(
           scale,
           translateX,
           translateY,
+          windowWidth,
+          windowHeight,
           selectedShapeId,
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
           pinchStartDimensions,
+          draggingShape,
+          dragLastTransX,
+          dragLastTransY,
+          edgePanX,
+          edgePanY,
           shapes,
           layerOrder,
           onSelectedShapeChange: notifySelectedShapeChange,
@@ -451,11 +535,18 @@ const SkiaIllustrator = React.forwardRef(
         scale,
         translateX,
         translateY,
+        windowWidth,
+        windowHeight,
         selectedShapeId,
         selectedShapeStart,
         selectedShapeBounds,
         selectedShapeRotation,
         pinchStartDimensions,
+        draggingShape,
+        dragLastTransX,
+        dragLastTransY,
+        edgePanX,
+        edgePanY,
         shapes,
         layerOrder,
         notifySelectedShapeChange,
@@ -691,6 +782,11 @@ const SkiaIllustrator = React.forwardRef(
             selectedShapeBounds,
             selectedShapeRotation,
             pinchStartDimensions,
+            draggingShape,
+            dragLastTransX,
+            dragLastTransY,
+            edgePanX,
+            edgePanY,
             shapes,
             layerOrder,
             onSelectedShapeChange: notifySelectedShapeChange,
@@ -712,6 +808,11 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeBounds,
           selectedShapeRotation,
           pinchStartDimensions,
+          draggingShape,
+          dragLastTransX,
+          dragLastTransY,
+          edgePanX,
+          edgePanY,
           shapes,
           layerOrder,
           notifySelectedShapeChange,
@@ -733,6 +834,12 @@ const SkiaIllustrator = React.forwardRef(
           scale,
           translateX,
           translateY,
+          savedTranslateX,
+          savedTranslateY,
+          windowWidth,
+          windowHeight,
+          canvasWidth: resolvedCanvas.width,
+          canvasHeight: resolvedCanvas.height,
           activeStrokePath,
           activeStrokeColour,
           activeStrokeThickness,
@@ -742,6 +849,11 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
+          draggingShape,
+          dragLastTransX,
+          dragLastTransY,
+          edgePanX,
+          edgePanY,
           lineAnchor,
           pendingLinePreview,
           activeIconAspect,
@@ -757,6 +869,12 @@ const SkiaIllustrator = React.forwardRef(
         scale,
         translateX,
         translateY,
+        savedTranslateX,
+        savedTranslateY,
+        windowWidth,
+        windowHeight,
+        resolvedCanvas.width,
+        resolvedCanvas.height,
         activeStrokePath,
         activeStrokeColour,
         activeStrokeThickness,
@@ -766,6 +884,11 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeStart,
         selectedShapeBounds,
         selectedShapeRotation,
+        draggingShape,
+        dragLastTransX,
+        dragLastTransY,
+        edgePanX,
+        edgePanY,
         notifySelectedShapeChange,
         lineAnchor,
         pendingLinePreview,

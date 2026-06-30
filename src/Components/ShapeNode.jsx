@@ -48,10 +48,6 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
     shapeSnapshot ?? shapes.value.find((s) => s.id === shapeID);
   const shapeType = currentShape ? currentShape.type : 'rect';
   const textContent = currentShape?.content ?? '';
-  const textFont = React.useMemo(
-    () => Skia.Font(typeface, currentShape?.fontSize ?? 32),
-    [currentShape?.fontSize, typeface]
-  );
 
   // MW - Mirror this node's live geometry into individual PRIMITIVE shared
   // values via a single useAnimatedReaction. The previous design resolved the
@@ -74,6 +70,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   const radius = useSharedValue(currentShape?.radius ?? 10);
   const colour = useSharedValue(currentShape?.colour ?? 'black');
   const rotation = useSharedValue(currentShape?.rotation ?? 0);
+  const fontSize = useSharedValue(currentShape?.fontSize ?? 32);
   const exists = useSharedValue(!!currentShape);
 
   useAnimatedReaction(
@@ -91,9 +88,17 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
       radius.value = shape.radius ?? 10;
       colour.value = shape.colour ?? 'black';
       rotation.value = shape.rotation ?? 0;
+      fontSize.value = shape.fontSize ?? 32;
     },
     [shapeID]
   );
+
+  // MW - Build the text font on the UI thread from the live `fontSize` shared
+  // value so glyphs scale in real time during a pinch resize. A React-side
+  // useMemo (the previous approach) only rebuilt the font on re-render, so the
+  // text stayed the same size while the selection box grew/shrank under the
+  // gesture.
+  const textFont = useDerivedValue(() => Skia.Font(typeface, fontSize.value || 32));
 
   const linePath = useDerivedValue(() => {
     const sx = x.value;

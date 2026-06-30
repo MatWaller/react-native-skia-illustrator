@@ -90,8 +90,8 @@ Set the active tool with `ref.current.setCurrentTool(tool)`:
 | `control` / `move` | Drag empty canvas to pan, pinch to zoom (smooth focal-point zoom), drag a shape to move it, pinch/rotate a selected shape. |
 | `selection` | Tap to select; drag to move; pinch to resize; rotate with two fingers. |
 | `paint` | Freehand drawing with the active colour and brush size. |
-| `eraser` | Erase paint strokes; overlapping shapes are flattened into the drawing layer and erased. |
-| `shape` | Place shapes by **tap** (default size) or **drag** (size in real time). |
+| `eraser` | Erase paint strokes; dragging over a shape, icon or text deletes it. |
+| `shape` | With a shape/icon selected: place by **tap** (default size) or **drag** (size in real time). With none selected, drag pans the canvas. |
 | `text` | Tap to place text — a themeable modal opens to enter the content. |
 
 ### Placing shapes & icons
@@ -183,12 +183,13 @@ nests safely inside a host modal). Pass `textModalProps` to fully theme it:
 
 Available `textModalProps`:
 
-- **Labels:** `createTitle`, `editTitle`, `placeholder`, `cancelLabel`,
-  `submitLabel`, `placeholderTextColor`
-- **Behaviour:** `multiline`, `autoFocus`
-- **Styles:** `overlayStyle`, `backdropStyle`, `cardStyle`, `titleStyle`,
-  `inputStyle`, `buttonRowStyle`, `cancelButtonStyle`, `cancelButtonTextStyle`,
-  `submitButtonStyle`, `submitButtonTextStyle`
+- **Labels:** `createHeader`, `editHeader`, `createTitle`, `editTitle`,
+  `placeholder`, `cancelLabel`, `submitLabel`, `placeholderTextColor`
+- **Behaviour:** `multiline`, `autoFocus`, `showHeader`
+- **Styles:** `overlayStyle`, `backdropStyle`, `cardStyle`, `headerStyle`,
+  `headerTextStyle`, `titleStyle`, `inputStyle`, `buttonRowStyle`,
+  `cancelButtonStyle`, `cancelButtonTextStyle`, `submitButtonStyle`,
+  `submitButtonTextStyle`
 
 ---
 

@@ -22,6 +22,11 @@ export const createControlGestures = ({
   selectedShapeBounds,
   selectedShapeRotation,
   pinchStartDimensions,
+  draggingShape,
+  dragLastTransX,
+  dragLastTransY,
+  edgePanX,
+  edgePanY,
   shapes,
   layerOrder,
   onSelectedShapeChange,
@@ -47,6 +52,31 @@ export const createControlGestures = ({
       x: (x - (translateX.value || 0)) / (scale.value || 1),
       y: (y - (translateY.value || 0)) / (scale.value || 1),
     };
+  };
+
+  // MW - Edge auto-pan velocity from the finger's screen position.
+  const EDGE_ZONE = 56;
+  const EDGE_MAX_SPEED = 14;
+  const updateEdgePan = (ax, ay) => {
+    'worklet';
+    let evx = 0;
+    let evy = 0;
+    if (ax < EDGE_ZONE) {
+      evx = Math.min((EDGE_ZONE - ax) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
+    } else if (ax > windowWidth - EDGE_ZONE) {
+      evx =
+        -Math.min((ax - (windowWidth - EDGE_ZONE)) / EDGE_ZONE, 1) *
+        EDGE_MAX_SPEED;
+    }
+    if (ay < EDGE_ZONE) {
+      evy = Math.min((EDGE_ZONE - ay) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
+    } else if (ay > windowHeight - EDGE_ZONE) {
+      evy =
+        -Math.min((ay - (windowHeight - EDGE_ZONE)) / EDGE_ZONE, 1) *
+        EDGE_MAX_SPEED;
+    }
+    edgePanX.value = evx;
+    edgePanY.value = evy;
   };
 
   // -- Hit test helpers (mirrors selectionGestures) --
@@ -218,7 +248,9 @@ export const createControlGestures = ({
       if (hitId) {
         // Touching a shape — set up shape drag.
         isPanningViewport.value = false;
+        draggingShape.value = true;
       } else if (selectedShapeId.value == null) {
+        draggingShape.value = false;
         if (Date.now() - lastPinchEndedAt.value < 500) {
           isPanningViewport.value = false;
         } else {
@@ -228,9 +260,13 @@ export const createControlGestures = ({
         }
       } else {
         isPanningViewport.value = false;
+        draggingShape.value = false;
         selectedShapeBounds.value = { x: 0, y: 0, width: 0, height: 0 };
         selectedShapeRotation.value = 0;
       }
+
+      edgePanX.value = 0;
+      edgePanY.value = 0;
 
       selectedShapeId.value = hitId;
       if (hitId && onBeforeShapeMutation) {
@@ -244,6 +280,9 @@ export const createControlGestures = ({
       'worklet';
       if (selectedShapeId.value) {
         // Shape drag
+        dragLastTransX.value = event.translationX;
+        dragLastTransY.value = event.translationY;
+        updateEdgePan(event.absoluteX, event.absoluteY);
         const newX =
           selectedShapeStart.value.x + event.translationX / scale.value;
         const newY =
@@ -277,6 +316,9 @@ export const createControlGestures = ({
         savedTranslateY.value = translateY.value;
       }
       isPanningViewport.value = false;
+      draggingShape.value = false;
+      edgePanX.value = 0;
+      edgePanY.value = 0;
     });
 
   const controlPinchGesture = Gesture.Pinch()
@@ -293,6 +335,7 @@ export const createControlGestures = ({
               width: shape.width ?? 0,
               height: shape.height ?? 0,
               radius: shape.radius ?? 0,
+              fontSize: shape.fontSize ?? 0,
             };
             if (onBeforeShapeMutation) {
               runOnJS(onBeforeShapeMutation)(
@@ -323,6 +366,18 @@ export const createControlGestures = ({
               const newRadius = pinchStartDimensions.value.radius * event.scale;
               if (newRadius > 0) {
                 shape.radius = newRadius;
+                selectedShapeBounds.value = getShapeBounds(shape);
+              }
+            } else if (shape.type === 'text') {
+              // MW - Text is sized by fontSize; scale it (and the cached glyph
+              // width/height, linear in font size) from the snapshotted
+              // baseline so the glyphs scale live with the selection box.
+              const newFontSize =
+                pinchStartDimensions.value.fontSize * event.scale;
+              if (newFontSize > 0) {
+                shape.fontSize = newFontSize;
+                shape.width = pinchStartDimensions.value.width * event.scale;
+                shape.height = newFontSize;
                 selectedShapeBounds.value = getShapeBounds(shape);
               }
             } else {

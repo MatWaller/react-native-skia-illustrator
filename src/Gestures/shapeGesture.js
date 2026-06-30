@@ -7,11 +7,22 @@ export const createShapeGestures = ({
   scale,
   translateX,
   translateY,
+  savedTranslateX,
+  savedTranslateY,
+  windowWidth,
+  windowHeight,
+  canvasWidth,
+  canvasHeight,
   shapeToolType,
   selectedShapeId,
   selectedShapeStart,
   selectedShapeBounds,
   selectedShapeRotation,
+  draggingShape,
+  dragLastTransX,
+  dragLastTransY,
+  edgePanX,
+  edgePanY,
   activeStrokeColour,
   activeStrokeThickness,
   shapes,
@@ -34,6 +45,49 @@ export const createShapeGestures = ({
       x: (x - tx) / currentScale,
       y: (y - ty) / currentScale,
     };
+  };
+
+  // MW - Clamp the viewport so a pan in shape mode (when no shape/icon is
+  // selected in the toolbar) keeps the canvas within view, mirroring the
+  // control tool's pan bounds.
+  const PAN_PADDING = 150;
+  const clampTranslations = (x, y, s) => {
+    'worklet';
+    return {
+      x: Math.min(
+        Math.max(x, PAN_PADDING - (canvasWidth ?? 0) * s),
+        (windowWidth ?? 0) - PAN_PADDING
+      ),
+      y: Math.min(
+        Math.max(y, PAN_PADDING - (canvasHeight ?? 0) * s),
+        (windowHeight ?? 0) - PAN_PADDING
+      ),
+    };
+  };
+
+  // MW - Edge auto-pan velocity from the finger's screen position.
+  const EDGE_ZONE = 56;
+  const EDGE_MAX_SPEED = 14;
+  const updateEdgePan = (ax, ay) => {
+    'worklet';
+    let evx = 0;
+    let evy = 0;
+    if (ax < EDGE_ZONE) {
+      evx = Math.min((EDGE_ZONE - ax) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
+    } else if (ax > (windowWidth ?? 0) - EDGE_ZONE) {
+      evx =
+        -Math.min((ax - ((windowWidth ?? 0) - EDGE_ZONE)) / EDGE_ZONE, 1) *
+        EDGE_MAX_SPEED;
+    }
+    if (ay < EDGE_ZONE) {
+      evy = Math.min((EDGE_ZONE - ay) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
+    } else if (ay > (windowHeight ?? 0) - EDGE_ZONE) {
+      evy =
+        -Math.min((ay - ((windowHeight ?? 0) - EDGE_ZONE)) / EDGE_ZONE, 1) *
+        EDGE_MAX_SPEED;
+    }
+    edgePanX.value = evx;
+    edgePanY.value = evy;
   };
 
   const hitTestCircle = (shape, px, py) => {
@@ -408,7 +462,7 @@ export const createShapeGestures = ({
   // real time (anchored at the press point). Pressing on an existing shape
   // moves it instead. Pinch/rotate still work via the simultaneous gestures.
   const createStart = makeMutable({ x: 0, y: 0 });
-  const createMode = makeMutable('none'); // 'none' | 'move' | 'create'
+  const createMode = makeMutable('none'); // 'none' | 'move' | 'create' | 'pan'
   const creatingShapeId = makeMutable(null);
 
   const dragPlaceShapeGesture = Gesture.Pan()
@@ -430,6 +484,9 @@ export const createShapeGestures = ({
         // Touching an existing shape — set up a move.
         createMode.value = 'move';
         creatingShapeId.value = null;
+        draggingShape.value = true;
+        edgePanX.value = 0;
+        edgePanY.value = 0;
         selectedShapeId.value = hit.id;
         selectedShapeStart.value = { x: hit.x, y: hit.y };
         selectedShapeBounds.value = getShapeBounds(hit);
@@ -441,6 +498,13 @@ export const createShapeGestures = ({
         if (onSelectedShapeChange) {
           runOnJS(onSelectedShapeChange)(hit.id);
         }
+      } else if (!shapeToolType) {
+        // MW - No shape/icon picked in the toolbar: a drag on empty canvas pans
+        // the viewport instead of drag-placing a bounding box.
+        createMode.value = 'pan';
+        creatingShapeId.value = null;
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
       } else {
         // Empty canvas — prepare to create on drag (deferred to onStart so a
         // plain tap doesn't create a zero-size shape).
@@ -457,6 +521,7 @@ export const createShapeGestures = ({
         }
         return;
       }
+      if (createMode.value === 'pan') return;
       if (createMode.value !== 'create') return;
 
       const a = createStart.value;
@@ -548,8 +613,20 @@ export const createShapeGestures = ({
     })
     .onUpdate((event) => {
       'worklet';
+      if (createMode.value === 'pan') {
+        // MW - Viewport pan (no shape/icon selected in the toolbar).
+        const tx = savedTranslateX.value + event.translationX;
+        const ty = savedTranslateY.value + event.translationY;
+        const clamped = clampTranslations(tx, ty, scale.value || 1);
+        translateX.value = clamped.x;
+        translateY.value = clamped.y;
+        return;
+      }
       if (createMode.value === 'move') {
         if (!selectedShapeId.value) return;
+        dragLastTransX.value = event.translationX;
+        dragLastTransY.value = event.translationY;
+        updateEdgePan(event.absoluteX, event.absoluteY);
         const newX =
           selectedShapeStart.value.x + event.translationX / (scale.value || 1);
         const newY =
@@ -630,6 +707,16 @@ export const createShapeGestures = ({
     })
     .onEnd(() => {
       'worklet';
+      draggingShape.value = false;
+      edgePanX.value = 0;
+      edgePanY.value = 0;
+      if (createMode.value === 'pan') {
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
+        createMode.value = 'none';
+        creatingShapeId.value = null;
+        return;
+      }
       if (createMode.value === 'create' && creatingShapeId.value != null) {
         const id = creatingShapeId.value;
         const cs = shapes.value;

@@ -28,6 +28,8 @@ const TextEditingModal = ({
   overlayStyle,
   backdropStyle,
   cardStyle,
+  headerStyle,
+  headerTextStyle,
   titleStyle,
   inputStyle,
   buttonRowStyle,
@@ -36,6 +38,8 @@ const TextEditingModal = ({
   submitButtonStyle,
   submitButtonTextStyle,
   // MW - Text/label overrides.
+  createHeader = 'Text',
+  editHeader = 'Text',
   createTitle = 'Add text',
   editTitle = 'Edit text',
   placeholder = 'Enter text',
@@ -44,6 +48,7 @@ const TextEditingModal = ({
   placeholderTextColor = '#9aa0a6',
   multiline = false,
   autoFocus = true,
+  showHeader = true,
 }) => {
   const inputRef = React.useRef(null);
 
@@ -92,6 +97,7 @@ const TextEditingModal = ({
 
   if (!visible) return null;
 
+  const header = mode === 'edit' ? editHeader : createHeader;
   const title = mode === 'edit' ? editTitle : createTitle;
 
   return (
@@ -109,6 +115,11 @@ const TextEditingModal = ({
         pointerEvents="box-none"
       >
         <View style={[styles.card, cardStyle]}>
+          {showHeader && header ? (
+            <View style={[styles.header, headerStyle]}>
+              <Text style={[styles.headerText, headerTextStyle]}>{header}</Text>
+            </View>
+          ) : null}
           {title ? (
             <Text style={[styles.title, titleStyle]}>{title}</Text>
           ) : null}
@@ -190,6 +201,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 16,
     elevation: 12,
+  },
+  header: {
+    marginHorizontal: -20,
+    marginTop: -20,
+    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ececf0',
+    backgroundColor: '#f6f6f8',
+  },
+  headerText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1f1f1f',
   },
   title: {
     fontSize: 16,

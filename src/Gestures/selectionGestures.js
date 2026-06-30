@@ -7,11 +7,18 @@ export const createSelectionGestures = ({
   scale,
   translateX,
   translateY,
+  windowWidth,
+  windowHeight,
   selectedShapeId,
   selectedShapeStart,
   selectedShapeBounds,
   selectedShapeRotation,
   pinchStartDimensions,
+  draggingShape,
+  dragLastTransX,
+  dragLastTransY,
+  edgePanX,
+  edgePanY,
   shapes,
   layerOrder,
   onSelectedShapeChange,
@@ -27,6 +34,31 @@ export const createSelectionGestures = ({
       x: (x - tx) / currentScale,
       y: (y - ty) / currentScale,
     };
+  };
+
+  // MW - Edge auto-pan velocity from the finger's screen position.
+  const EDGE_ZONE = 56;
+  const EDGE_MAX_SPEED = 14;
+  const updateEdgePan = (ax, ay) => {
+    'worklet';
+    let evx = 0;
+    let evy = 0;
+    if (ax < EDGE_ZONE) {
+      evx = Math.min((EDGE_ZONE - ax) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
+    } else if (ax > windowWidth - EDGE_ZONE) {
+      evx =
+        -Math.min((ax - (windowWidth - EDGE_ZONE)) / EDGE_ZONE, 1) *
+        EDGE_MAX_SPEED;
+    }
+    if (ay < EDGE_ZONE) {
+      evy = Math.min((EDGE_ZONE - ay) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
+    } else if (ay > windowHeight - EDGE_ZONE) {
+      evy =
+        -Math.min((ay - (windowHeight - EDGE_ZONE)) / EDGE_ZONE, 1) *
+        EDGE_MAX_SPEED;
+    }
+    edgePanX.value = evx;
+    edgePanY.value = evy;
   };
 
   const hitTestCircle = (shape, px, py) => {
@@ -187,6 +219,7 @@ export const createSelectionGestures = ({
             width: shape.width ?? 0,
             height: shape.height ?? 0,
             radius: shape.radius ?? 0,
+            fontSize: shape.fontSize ?? 0,
           };
           if (onBeforeShapeMutation) {
             runOnJS(onBeforeShapeMutation)(
@@ -212,6 +245,19 @@ export const createSelectionGestures = ({
             const newRadius = pinchStartDimensions.value.radius * event.scale;
             if (newRadius > 0) {
               shape.radius = newRadius;
+              selectedShapeBounds.value = getShapeBounds(shape);
+            }
+          } else if (shape.type === 'text') {
+            // MW - Text is sized by fontSize, so scale that (and the cached
+            // glyph width/height, which are linear in font size) from the
+            // snapshotted baseline. ShapeNode rebuilds the font from fontSize
+            // on the UI thread, so the glyphs scale live with the box.
+            const newFontSize =
+              pinchStartDimensions.value.fontSize * event.scale;
+            if (newFontSize > 0) {
+              shape.fontSize = newFontSize;
+              shape.width = pinchStartDimensions.value.width * event.scale;
+              shape.height = newFontSize;
               selectedShapeBounds.value = getShapeBounds(shape);
             }
           } else {
@@ -279,6 +325,10 @@ export const createSelectionGestures = ({
         selectedShapeRotation.value = 0;
       }
 
+      draggingShape.value = !!hitId;
+      edgePanX.value = 0;
+      edgePanY.value = 0;
+
       selectedShapeId.value = hitId;
       if (hitId && onBeforeShapeMutation) {
         runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
@@ -290,6 +340,10 @@ export const createSelectionGestures = ({
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
+
+      dragLastTransX.value = event.translationX;
+      dragLastTransY.value = event.translationY;
+      updateEdgePan(event.absoluteX, event.absoluteY);
 
       const newX =
         selectedShapeStart.value.x + event.translationX / scale.value;
@@ -315,8 +369,9 @@ export const createSelectionGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      // Don't clear selection on gesture end - let the context menu handle it
-      // selectedShapeId.value = null;
+      draggingShape.value = false;
+      edgePanX.value = 0;
+      edgePanY.value = 0;
     });
 
   const rotateSelectionGesture = Gesture.Rotation()
