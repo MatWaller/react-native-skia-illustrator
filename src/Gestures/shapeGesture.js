@@ -22,6 +22,7 @@ export const createShapeGestures = ({
   finalizeShapeCreation,
   lineAnchor,
   pendingLinePreview,
+  activeIconAspect,
 }) => {
   const getCanvasPoint = (x, y) => {
     'worklet';
@@ -355,13 +356,20 @@ export const createShapeGestures = ({
         case 'icon': {
           // MW - iconPath / iconViewBox are merged in addShape on the JS thread
           // (via activeIconDataRef) so we don't capture large SVG strings here.
+          // Apply the cached aspect ratio immediately so the icon is placed
+          // undistorted (addShape later reconciles against the real viewBox).
+          const aspect =
+            activeIconAspect && activeIconAspect.value > 0
+              ? activeIconAspect.value
+              : 1;
+          const iconH = size * aspect;
           newShape = {
             id: `icon-${ts}`,
             type: 'icon',
             x: ox,
-            y: oy,
+            y: y - iconH / 2,
             width: size,
-            height: size,
+            height: iconH,
             colour,
             rotation: 0,
             iconName: '',
@@ -561,7 +569,8 @@ export const createShapeGestures = ({
         return;
       }
 
-      if (createMode.value !== 'create' || creatingShapeId.value == null) return;
+      if (createMode.value !== 'create' || creatingShapeId.value == null)
+        return;
 
       const a = createStart.value;
       const b = getCanvasPoint(event.x, event.y);
@@ -583,6 +592,29 @@ export const createShapeGestures = ({
           s.y = a.y;
           s.width = b.x - a.x;
           s.height = b.y - a.y;
+        } else if (s.type === 'icon') {
+          // MW - Size the icon to the dragged box while preserving its aspect
+          // ratio (height / width). The anchor corner stays put and the icon
+          // grows toward the finger.
+          const aspect =
+            activeIconAspect && activeIconAspect.value > 0
+              ? activeIconAspect.value
+              : 1;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          let w = Math.abs(dx);
+          let h = Math.abs(dy);
+          // Fit to aspect: expand the smaller dimension so the icon fills the
+          // drag without distortion.
+          if (w * aspect >= h) {
+            h = w * aspect;
+          } else {
+            w = h / aspect;
+          }
+          s.width = w;
+          s.height = h;
+          s.x = dx < 0 ? a.x - w : a.x;
+          s.y = dy < 0 ? a.y - h : a.y;
         } else {
           s.x = Math.min(a.x, b.x);
           s.y = Math.min(a.y, b.y);
@@ -609,6 +641,16 @@ export const createShapeGestures = ({
             if ((s.radius ?? 0) < 2) s.radius = 2;
           } else if (s.type === 'line') {
             if (s.width === 0 && s.height === 0) s.width = 1;
+          } else if (s.type === 'icon') {
+            // MW - Enforce a minimum size while keeping the aspect ratio intact.
+            const aspect =
+              activeIconAspect && activeIconAspect.value > 0
+                ? activeIconAspect.value
+                : 1;
+            if ((s.width ?? 0) < 8) {
+              s.width = 8;
+              s.height = 8 * aspect;
+            }
           } else {
             if (Math.abs(s.width ?? 0) < 4) s.width = 4;
             if (Math.abs(s.height ?? 0) < 4) s.height = 4;

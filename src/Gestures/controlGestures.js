@@ -401,7 +401,8 @@ export const createControlGestures = ({
       // shape tracks the fingers 1:1 instead of compounding every frame (the
       // old code added radians into a degrees field and re-added the running
       // total each update, causing runaway over-rotation).
-      const nextRotation = rotationStart.value + (event.rotation * 180) / Math.PI;
+      const nextRotation =
+        rotationStart.value + (event.rotation * 180) / Math.PI;
       const currentShapes = shapes.value;
       for (let i = 0; i < currentShapes.length; i++) {
         if (currentShapes[i].id === selectedShapeId.value) {

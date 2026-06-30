@@ -133,6 +133,11 @@ const SkiaIllustrator = React.forwardRef(
     const [rulerUnit, setRulerUnit] = useState('px'); // 'px' | 'cm'
 
     const activeIconDataRef = React.useRef(null);
+    // MW - Live aspect ratio (height / width) of the currently selected icon,
+    // mirrored onto the UI thread so the drag-to-size gesture can keep the
+    // icon undistorted while it is being drawn (the gesture worklet has no
+    // access to the icon's viewBox, which lives in activeIconDataRef on JS).
+    const activeIconAspect = useSharedValue(1);
 
     const [layers, setLayers] = useState([
       { id: 'underlayer', name: 'Under Paint' },
@@ -700,6 +705,7 @@ const SkiaIllustrator = React.forwardRef(
           selectedShapeRotation,
           lineAnchor,
           pendingLinePreview,
+          activeIconAspect,
         }),
       [
         shapes,
@@ -724,6 +730,7 @@ const SkiaIllustrator = React.forwardRef(
         notifySelectedShapeChange,
         lineAnchor,
         pendingLinePreview,
+        activeIconAspect,
       ]
     );
 
@@ -1746,6 +1753,14 @@ const SkiaIllustrator = React.forwardRef(
         getCurrentShape: () => shapeToolType,
         setIcon: (iconData) => {
           activeIconDataRef.current = iconData;
+          // MW - Cache the icon's aspect ratio (height / width) for the
+          // drag-to-size gesture so tap- and drag-placed icons stay undistorted.
+          const vb = iconData?.iconViewBox;
+          if (vb && vb.width > 0 && vb.height > 0) {
+            activeIconAspect.value = vb.height / vb.width;
+          } else {
+            activeIconAspect.value = 1;
+          }
           setShapeToolType('icon');
           // MW - If a shape is already selected and we're in shape mode, update
           // it to the new icon immediately.
