@@ -5,7 +5,7 @@ import {
   TextInput,
   Pressable,
   StyleSheet,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from 'react-native';
 
@@ -47,6 +47,40 @@ const TextEditingModal = ({
 }) => {
   const inputRef = React.useRef(null);
 
+  // MW - Track the keyboard height so we can reserve that space at the bottom
+  // of the overlay. The card then centers in the *visible* area above the
+  // keyboard, guaranteeing it is never covered. This is more reliable than
+  // <KeyboardAvoidingView>, whose `behavior` is effectively a no-op on Android
+  // and depends on the host's windowSoftInputMode.
+  const [keyboardHeight, setKeyboardHeight] = React.useState(0);
+
+  React.useEffect(() => {
+    // MW - iOS reports frames via the `Will*` events (smoother, fires before
+    // the animation); Android only reliably emits `DidShow`/`DidHide`.
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const onShow = (e) => {
+      setKeyboardHeight(e?.endCoordinates?.height ?? 0);
+    };
+    const onHide = () => setKeyboardHeight(0);
+
+    const showSub = Keyboard.addListener(showEvent, onShow);
+    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // MW - Reset the reserved space whenever the overlay is hidden so a stale
+  // keyboard height never lingers into the next open.
+  React.useEffect(() => {
+    if (!visible) setKeyboardHeight(0);
+  }, [visible]);
+
   // MW - Re-focus whenever the overlay becomes visible so the keyboard opens
   // immediately on both create and edit. autoFocus alone is unreliable when
   // the same instance is reused for consecutive edits.
@@ -70,9 +104,8 @@ const TextEditingModal = ({
         style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}
         onPress={onCancel}
       />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.avoider}
+      <View
+        style={[styles.avoider, { paddingBottom: keyboardHeight }]}
         pointerEvents="box-none"
       >
         <View style={[styles.card, cardStyle]}>
@@ -127,7 +160,7 @@ const TextEditingModal = ({
             </Pressable>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 };
