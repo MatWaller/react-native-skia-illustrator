@@ -569,10 +569,49 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory(
           buildSnapshot(shapes.value.filter((s) => s.id !== shape.id))
         );
+        // MW - Icons arrive from the worklet with only geometry (the SVG path
+        // and viewBox live on the JS thread in activeIconDataRef). Merge them
+        // in NOW so the icon renders and resizes live during the drag, instead
+        // of showing just the selection box until release. Geometry is left
+        // untouched — the drag keeps advancing x/y/width/height on the UI
+        // thread and the aspect ratio is enforced there.
+        let enriched = shape;
+        if (shape.type === 'icon' && activeIconDataRef.current) {
+          enriched = {
+            ...shape,
+            iconName: activeIconDataRef.current.iconName ?? '',
+            iconPath: activeIconDataRef.current.iconPath ?? '',
+            iconViewBox: activeIconDataRef.current.iconViewBox ?? {
+              width: 512,
+              height: 512,
+            },
+          };
+        }
         const layeredShape =
-          shape.type === 'text'
-            ? shape
-            : { ...shape, layer: activeLayerIdRef.current };
+          enriched.type === 'text'
+            ? enriched
+            : { ...enriched, layer: activeLayerIdRef.current };
+
+        // MW - Reflect the icon path/viewBox + layer back into the live shared
+        // value so the array stays consistent, while preserving whatever
+        // geometry the drag has already advanced this frame.
+        if (layeredShape !== shape) {
+          const idx = shapes.value.findIndex((s) => s.id === shape.id);
+          if (idx !== -1) {
+            const live = shapes.value[idx];
+            const next = [...shapes.value];
+            next[idx] = {
+              ...live,
+              layer: layeredShape.layer ?? live.layer,
+              iconName: layeredShape.iconName ?? live.iconName,
+              iconPath: layeredShape.iconPath ?? live.iconPath,
+              iconViewBox: layeredShape.iconViewBox ?? live.iconViewBox,
+            };
+            shapes.value = next;
+            notifyChange(shapes);
+          }
+        }
+
         setShapeList((prev) => [
           ...prev.filter((s) => s.id !== shape.id),
           layeredShape,
