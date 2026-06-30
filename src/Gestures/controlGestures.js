@@ -218,7 +218,10 @@ export const createControlGestures = ({
   };
 
   const isPanningViewport = makeMutable(false);
-  const lastPinchEndedAt = makeMutable(0);
+  const isPinchActive = makeMutable(false);
+
+  const prevPointerX = makeMutable(0);
+  const prevPointerY = makeMutable(0);
   // MW - Rotation start angle (degrees) captured at gesture begin.
   const rotationStart = makeMutable(0);
   // MW - Incremental pinch trackers so zoom follows the focal point smoothly
@@ -251,13 +254,9 @@ export const createControlGestures = ({
         draggingShape.value = true;
       } else if (selectedShapeId.value == null) {
         draggingShape.value = false;
-        if (Date.now() - lastPinchEndedAt.value < 500) {
-          isPanningViewport.value = false;
-        } else {
-          isPanningViewport.value = true;
-          savedTranslateX.value = translateX.value;
-          savedTranslateY.value = translateY.value;
-        }
+        isPanningViewport.value = true;
+        prevPointerX.value = event.x;
+        prevPointerY.value = event.y;
       } else {
         isPanningViewport.value = false;
         draggingShape.value = false;
@@ -301,12 +300,17 @@ export const createControlGestures = ({
         notifyChange(selectedShapeBounds);
         notifyChange(selectedShapeRotation);
       } else if (isPanningViewport.value) {
-        // Viewport pan
-        const tx = savedTranslateX.value + event.translationX;
-        const ty = savedTranslateY.value + event.translationY;
-        const clamped = clampTranslations(tx, ty, scale.value);
-        translateX.value = clamped.x;
-        translateY.value = clamped.y;
+        const dx = event.x - prevPointerX.value;
+        const dy = event.y - prevPointerY.value;
+        prevPointerX.value = event.x;
+        prevPointerY.value = event.y;
+        if (!isPinchActive.value) {
+          const tx = translateX.value + dx;
+          const ty = translateY.value + dy;
+          const clamped = clampTranslations(tx, ty, scale.value);
+          translateX.value = clamped.x;
+          translateY.value = clamped.y;
+        }
       }
     })
     .onEnd(() => {
@@ -322,7 +326,7 @@ export const createControlGestures = ({
     });
 
   const controlPinchGesture = Gesture.Pinch()
-    .onBegin((event) => {
+    .onStart((event) => {
       'worklet';
       if (selectedShapeId.value != null) {
         // MW - Snapshot dimensions at gesture start so onUpdate can scale from
@@ -347,6 +351,7 @@ export const createControlGestures = ({
         }
         return;
       }
+      isPinchActive.value = true;
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
@@ -397,6 +402,9 @@ export const createControlGestures = ({
         notifyChange(selectedShapeBounds);
         return;
       }
+      if (event.numberOfPointers != null && event.numberOfPointers < 2) {
+        return;
+      }
       // MW - Incremental zoom: follow the focal point's movement this frame
       // (focalDX/DY) then scale around the current focal point. Working from
       // the live translate/scale each frame keeps the gesture smooth and
@@ -427,10 +435,10 @@ export const createControlGestures = ({
     .onEnd(() => {
       'worklet';
       if (selectedShapeId.value != null) return;
+      isPinchActive.value = false;
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
-      lastPinchEndedAt.value = Date.now();
     });
 
   const controlRotateGesture = Gesture.Rotation()
