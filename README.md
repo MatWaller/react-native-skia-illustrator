@@ -51,6 +51,8 @@ plugin in particular). `SkiaIllustrator` already renders its own
 
 ## Quick start
 
+### React Native
+
 ```jsx
 import React, { useRef } from 'react';
 import { View } from 'react-native';
@@ -78,6 +80,42 @@ the paint tool and set a colour:
 ref.current.setCurrentTool('paint');
 ref.current.setColour('#6366f1');
 ```
+
+### React for the browser
+
+The package also includes a browser/desktop React implementation backed by
+HTML canvas. It keeps the same imperative API, data model, tools, layers,
+serialization, text editing, and PNG export, but does not require
+`react-native`, Reanimated, Gesture Handler, or Skia in the web app.
+
+```jsx
+import React, { useRef } from 'react';
+import { SkiaIllustrator } from 'react-native-skia-illustrator/web';
+
+export default function WebApp() {
+  const ref = useRef(null);
+
+  return (
+    <div style={{ width: '100vw', height: '100vh' }}>
+      <SkiaIllustrator
+        ref={ref}
+        onToolChange={(tool) => console.log('tool:', tool)}
+        onSelectedShapeChange={(hasSelection) => console.log(hasSelection)}
+      />
+    </div>
+  );
+}
+```
+
+Browser interaction notes:
+
+- Mouse drag in `control`, `move`, or `selection` moves selected shapes or pans
+  empty canvas space.
+- Mouse wheel zooms around the cursor.
+- Selection handles resize the active shape; the handle above the selection box
+  rotates it.
+- Double-click text to edit it. Press Delete/Backspace to remove the selected
+  shape.
 
 ---
 
