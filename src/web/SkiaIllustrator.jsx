@@ -1030,6 +1030,36 @@ const SkiaIllustratorWeb = React.forwardRef(
       renderCanvas();
     }, [renderCanvas]);
 
+    React.useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return undefined;
+
+      const handleWheel = (event) => {
+        event.preventDefault();
+        const current = stateRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const sx = event.clientX - rect.left;
+        const sy = event.clientY - rect.top;
+        const before = {
+          x: (sx - current.transform.x) / current.transform.scale,
+          y: (sy - current.transform.y) / current.transform.scale,
+        };
+        const nextScale = clamp(
+          current.transform.scale * (event.deltaY < 0 ? 1.1 : 0.9),
+          0.1,
+          12
+        );
+        setTransform({
+          scale: nextScale,
+          x: sx - before.x * nextScale,
+          y: sy - before.y * nextScale,
+        });
+      };
+
+      canvas.addEventListener('wheel', handleWheel, { passive: false });
+      return () => canvas.removeEventListener('wheel', handleWheel);
+    }, []);
+
     const onPointerDown = React.useCallback(
       (event) => {
         if (event.button !== 0) return;
@@ -1324,28 +1354,6 @@ const SkiaIllustratorWeb = React.forwardRef(
       },
       [addShapeAt, pushHistory, renderCanvas, screenToCanvas]
     );
-
-    const onWheel = React.useCallback((event) => {
-      event.preventDefault();
-      const current = stateRef.current;
-      const rect = canvasRef.current.getBoundingClientRect();
-      const sx = event.clientX - rect.left;
-      const sy = event.clientY - rect.top;
-      const before = {
-        x: (sx - current.transform.x) / current.transform.scale,
-        y: (sy - current.transform.y) / current.transform.scale,
-      };
-      const nextScale = clamp(
-        current.transform.scale * (event.deltaY < 0 ? 1.1 : 0.9),
-        0.1,
-        12
-      );
-      setTransform({
-        scale: nextScale,
-        x: sx - before.x * nextScale,
-        y: sy - before.y * nextScale,
-      });
-    }, []);
 
     const onKeyDown = React.useCallback(
       (event) => {
@@ -1777,7 +1785,6 @@ const SkiaIllustratorWeb = React.forwardRef(
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onWheel={onWheel}
         />
         {!canvasReady && <div style={webStyles.loading}>Loading canvas…</div>}
         <TextEditor
