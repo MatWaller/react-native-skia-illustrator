@@ -1740,7 +1740,14 @@ const SkiaIllustrator = React.forwardRef(
           // so the background image pixels remain untouched.
           canvas.saveLayer();
           allStrokesPath.forEach((stroke) => {
-            const { path, colour, thickness, isEraser, isFilled } = stroke;
+            const {
+              path,
+              colour,
+              thickness,
+              isEraser,
+              isFilled,
+              isHighlighter,
+            } = stroke;
             const paint = Skia.Paint();
             paint.setColor(Skia.Color(colour ?? 'black'));
             if (isFilled) {
@@ -1748,8 +1755,12 @@ const SkiaIllustrator = React.forwardRef(
             } else {
               paint.setStyle(PaintStyle.Stroke);
               paint.setStrokeWidth(thickness ?? 8);
-              paint.setStrokeCap(StrokeCap.Round);
-              paint.setStrokeJoin(StrokeJoin.Round);
+              paint.setStrokeCap(
+                isHighlighter ? StrokeCap.Square : StrokeCap.Round
+              );
+              paint.setStrokeJoin(
+                isHighlighter ? StrokeJoin.Miter : StrokeJoin.Round
+              );
             }
             if (isEraser) {
               paint.setBlendMode(BlendMode.Clear);
@@ -2141,8 +2152,12 @@ const SkiaIllustrator = React.forwardRef(
                                 color={stroke.colour}
                                 style="stroke"
                                 strokeWidth={stroke.thickness || 8}
-                                strokeCap="round"
-                                strokeJoin="round"
+                                strokeCap={
+                                  stroke.isHighlighter ? 'square' : 'round'
+                                }
+                                strokeJoin={
+                                  stroke.isHighlighter ? 'miter' : 'round'
+                                }
                                 blendMode={
                                   stroke.isEraser ? 'clear' : 'srcOver'
                                 }
@@ -2155,8 +2170,16 @@ const SkiaIllustrator = React.forwardRef(
                               color={currentColour}
                               style="stroke"
                               strokeWidth={activeStrokeThickness}
-                              strokeCap="round"
-                              strokeJoin="round"
+                              strokeCap={
+                                currentTool === 'highlighter'
+                                  ? 'square'
+                                  : 'round'
+                              }
+                              strokeJoin={
+                                currentTool === 'highlighter'
+                                  ? 'miter'
+                                  : 'round'
+                              }
                               blendMode={
                                 currentTool === 'eraser' ? 'clear' : 'srcOver'
                               }
