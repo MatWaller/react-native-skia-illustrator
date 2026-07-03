@@ -2,7 +2,13 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState } from 'react';
 
 // React Native Imports
-import { StyleSheet, View, useWindowDimensions, Keyboard } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  useWindowDimensions,
+  Keyboard,
+  Alert,
+} from 'react-native';
 
 // Gesture Handler Imports
 import {
@@ -1309,6 +1315,16 @@ const SkiaIllustrator = React.forwardRef(
     const setText = React.useCallback(
       (text) => {
         const value = text == null ? '' : String(text);
+
+        if (!value) {
+          deletedSelectedShape();
+          Alert.alert(
+            'No Text Was Entered',
+            'You can not place a text shape without any text. Please enter some text and try again.'
+          );
+          return;
+        }
+
         const shapeId = selectedShapeId.value;
 
         if (shapeId) {
