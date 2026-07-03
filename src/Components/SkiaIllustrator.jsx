@@ -331,7 +331,13 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Function to add the current active stroke path to the list of all strokes and reset the active stroke path after a short delay.
     const addPathToAllStrokes = React.useCallback(
-      (path, colour, thickness = 8, isEraser = false) => {
+      (
+        path,
+        colour,
+        thickness = 1,
+        isEraser = false,
+        isHighlighter = false
+      ) => {
         // MW - Snapshot before this stroke is committed.
         pushHistory(buildSnapshot(shapes.value));
 
@@ -377,11 +383,17 @@ const SkiaIllustrator = React.forwardRef(
           }
         }
 
+        if (isHighlighter && colour.length === 7 && colour.startsWith('#')) {
+          // MW - if this is a highlighter and no alpha is provided, add 50% alpha to the colour as this should act as a highlighter not a stroke.
+          colour = `${colour}80`;
+        }
+
         // Commit the eraser/paint stroke.
         setAllStrokesPath((prev) => [
           ...prev,
-          { path, colour, isEraser, thickness },
+          { path, colour, isEraser, isHighlighter, thickness },
         ]);
+
         if (resetTimer.current) clearTimeout(resetTimer.current);
         resetTimer.current = setTimeout(() => {
           activeStrokePath.value = Skia.Path.Make();
@@ -1016,6 +1028,7 @@ const SkiaIllustrator = React.forwardRef(
           );
         case 'paint':
         case 'eraser':
+        case 'highlighter':
           return paintGesture;
         case 'shape':
           // MW - Drag on empty canvas creates + sizes a shape in real time;

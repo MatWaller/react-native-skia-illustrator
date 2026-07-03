@@ -26,7 +26,11 @@ export const createPaintGestures = ({
   };
 
   const paintGesture = Gesture.Pan()
-    .enabled(currentTool === 'paint' || currentTool === 'eraser')
+    .enabled(
+      currentTool === 'paint' ||
+        currentTool === 'eraser' ||
+        currentTool === 'highlighter'
+    )
     .minDistance(0)
     .maxPointers(1)
     .onStart((event) => {
@@ -71,11 +75,13 @@ export const createPaintGestures = ({
     .onEnd(() => {
       'worklet';
       let isEraser = currentTool === 'eraser';
+      let isHighlighter = currentTool === 'highlighter';
       runOnJS(addPathToAllStrokes)(
         activeStrokePath.value,
         activeStrokeColour.value,
         activeStrokeThickness.value,
-        isEraser
+        isEraser,
+        isHighlighter
       );
     });
 
