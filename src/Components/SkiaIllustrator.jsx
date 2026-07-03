@@ -585,6 +585,7 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory(
           buildSnapshot(shapes.value.filter((s) => s.id !== shape.id))
         );
+
         // MW - Icon shapes carry only geometry from the worklet
         let finalShape =
           shape.type === 'icon' && activeIconDataRef.current
@@ -646,6 +647,11 @@ const SkiaIllustrator = React.forwardRef(
           ...prev.filter((s) => s.id !== shape.id),
           layeredShape,
         ]);
+
+        // MW - When a shape is placed, we switch to the control tool so the user can immediately manipulate it.
+        // This is purely a UX Decision if you would like to stay within the shape tool after placing a shape you can remove this line.
+        // :)
+        setCurrentTool('control');
       },
       [pushHistory, buildSnapshot, shapes]
     );
@@ -759,6 +765,7 @@ const SkiaIllustrator = React.forwardRef(
           notifyChange(shapes);
         }
         setShapeList(shapes.value.map((s) => ({ ...s })));
+        setCurrentTool('control');
       },
       [shapes, selectedShapeBounds]
     );
@@ -1323,16 +1330,11 @@ const SkiaIllustrator = React.forwardRef(
           }
         }
 
+        setCurrentTool('control');
         // No text shape selected — remember it for the next placed text.
-        defaultTextContentRef.current = value || 'New Text';
+        defaultTextContentRef.current = value || ' ';
       },
-      [
-        shapes,
-        selectedShapeId,
-        selectedShapeBounds,
-        pushHistory,
-        buildSnapshot,
-      ]
+      [shapes, selectedShapeId, selectedShapeBounds, pushHistory, buildSnapshot]
     );
 
     // MW - Create a new user layer inserted above 'shapes' (before 'text').
@@ -1624,8 +1626,7 @@ const SkiaIllustrator = React.forwardRef(
     // Accepts either a JSON string or an already-parsed object.
     const loadCanvas = React.useCallback(
       (input) => {
-        const data =
-          typeof input === 'string' ? JSON.parse(input) : input;
+        const data = typeof input === 'string' ? JSON.parse(input) : input;
 
         if (!data || typeof data !== 'object') {
           throw new Error('loadCanvas: invalid canvas data');
@@ -1936,14 +1937,24 @@ const SkiaIllustrator = React.forwardRef(
               let base = existing;
               if (existing.type === 'circle') {
                 const r = existing.radius ?? 0;
-                base = { ...existing, x: existing.x - r, y: existing.y - r, width: r * 2, height: r * 2, radius: undefined };
+                base = {
+                  ...existing,
+                  x: existing.x - r,
+                  y: existing.y - r,
+                  width: r * 2,
+                  height: r * 2,
+                  radius: undefined,
+                };
               }
               let updatedShape = {
                 ...base,
                 type: 'icon',
                 iconName: iconData.iconName ?? '',
                 iconPath: iconData.iconPath ?? '',
-                iconViewBox: iconData.iconViewBox ?? { width: 512, height: 512 },
+                iconViewBox: iconData.iconViewBox ?? {
+                  width: 512,
+                  height: 512,
+                },
               };
               // MW - Always recalculate height from the new viewbox ratio so the
               // icon is never distorted (e.g. swapping a tall icon for a square one).
@@ -1951,7 +1962,10 @@ const SkiaIllustrator = React.forwardRef(
                 const vbW = updatedShape.iconViewBox.width;
                 const vbH = updatedShape.iconViewBox.height;
                 if (vbW > 0 && vbH > 0) {
-                  updatedShape = { ...updatedShape, height: updatedShape.width * (vbH / vbW) };
+                  updatedShape = {
+                    ...updatedShape,
+                    height: updatedShape.width * (vbH / vbW),
+                  };
                 }
               }
               const updatedShapes = [...shapes.value];
@@ -2045,10 +2059,7 @@ const SkiaIllustrator = React.forwardRef(
     return (
       <GestureHandlerRootView style={styles.root}>
         <GestureDetector gesture={activeGestures}>
-          <View
-            style={styles.container}
-            onLayout={() => setCanvasReady(true)}
-          >
+          <View style={styles.container} onLayout={() => setCanvasReady(true)}>
             <Canvas style={canvasStyle}>
               <Group matrix={viewportMatrix}>
                 {
