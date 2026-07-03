@@ -170,3 +170,7 @@ jobs:
       - name: Check web React entrypoint
         run: |
           node --input-type=module -e "const mod = await import('./lib/module/web/index.js'); if (!mod.SkiaIllustrator || mod.SkiaIllustrator !== mod.SkiaIllustratorWeb) throw new Error('Invalid web React export');"
+          if grep -R -E "from ['\"]react-native|require\(['\"]react-native" lib/module/web; then
+            echo "Web React build must not import react-native"
+            exit 1
+          fi
