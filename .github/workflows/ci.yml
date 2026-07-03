@@ -154,3 +154,19 @@ jobs:
         run: |
           yarn turbo run build:ios --cache-dir="${{ env.TURBO_CACHE_DIR }}"
 
+  build-web-react:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Build package
+        run: yarn prepare
+
+      - name: Check web React entrypoint
+        run: |
+          node --input-type=module -e "const mod = await import('./lib/module/web/index.js'); if (!mod.SkiaIllustrator || mod.SkiaIllustrator !== mod.SkiaIllustratorWeb) throw new Error('Invalid web React export');"
