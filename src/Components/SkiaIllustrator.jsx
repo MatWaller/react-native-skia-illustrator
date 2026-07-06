@@ -86,7 +86,6 @@ const SkiaIllustrator = React.forwardRef(
     const [currentTool, setCurrentTool] = React.useState('control');
     const [currentColour, setCurrentColour] = React.useState('black');
 
-
     // MW - Notify the parent whenever the active tool changes so they can update the ui.
     useEffect(() => {
       onToolChange?.(currentTool);
@@ -2161,7 +2160,11 @@ const SkiaIllustrator = React.forwardRef(
       () => ({
         clearCanvas,
         setCurrentTool: (tool) => {
-          if (currentTool === 'paint' && tool !== 'paint') {
+          if (
+            currentTool === 'paint' &&
+            tool !== 'paint' &&
+            tool !== 'eraser'
+          ) {
             // MW - If leaving the paint tool collapse all current paths into a single committed stroke that they can move and resize.
             convertAllStrokesToShape();
           }
