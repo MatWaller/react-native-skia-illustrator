@@ -197,8 +197,10 @@ export const createShapeGestures = ({
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   };
 
+  const canPlaceShape = currentTool === 'shape' || currentTool === 'icon';
+
   const tapPlaceShapeGesture = Gesture.Tap()
-    .enabled(currentTool === 'shape')
+    .enabled(canPlaceShape)
     .onStart((event) => {
       'worklet';
       // MW - Get canvas coordinates from the tap event and add a new shape at that point.
@@ -466,7 +468,7 @@ export const createShapeGestures = ({
   const creatingShapeId = makeMutable(null);
 
   const dragPlaceShapeGesture = Gesture.Pan()
-    .enabled(currentTool === 'shape')
+    .enabled(canPlaceShape)
     .minDistance(6)
     .maxPointers(1)
     .onBegin((event) => {
