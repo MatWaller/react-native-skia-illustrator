@@ -188,6 +188,7 @@ ref.current.setText('Hello world');
 | `canvasHeight` | `number` | `200` | Paper height in canvas units (ignored if `imageSource` is set). |
 | `imageSource` | `string \| null` | `null` | Base64 / data-URI background image. Sizes the canvas to the image. |
 | `initialData` | `string \| object \| null` | `null` | Serialized project to restore on mount (see `serializeCanvas`). |
+| `pathToShape` | `boolean` | `false` | Commit paint strokes as selectable, movable, resizable custom path shapes. |
 | `onToolChange` | `(tool: string) => void` | — | Fires when the active tool changes. |
 | `onSelectedShapeChange` | `(hasSelection: boolean) => void` | — | Fires when the selection changes. |
 | `textModalProps` | `object \| null` | `null` | Style/label overrides for the text entry modal (see below). |
@@ -240,6 +241,7 @@ Available `textModalProps`:
 | `setCurrentTool(tool)` / `getCurrentTool()` | Get/set the active tool. |
 | `setColour(colour)` / `getCurrentColour()` | Set the paint colour (also recolours the selected shape). |
 | `setBrushSize(size)` / `getCurrentBrushSize()` | Brush thickness (also resizes the selected shape). |
+| `setPathToShape(enabled)` / `getPathToShape()` | Commit paint strokes as custom path shapes instead of drawing-layer strokes. |
 | `setFontSize(size)` / `getCurrentFontSize()` | Text size (also resizes selected text). |
 | `setShape(type)` / `getCurrentShape()` | Choose the shape type to place. |
 | `setIcon(iconData)` | Choose an icon (`{ iconName, iconPath, iconViewBox }`) to place. |

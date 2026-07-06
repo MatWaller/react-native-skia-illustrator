@@ -77,6 +77,7 @@ const SkiaIllustrator = React.forwardRef(
       onToolChange = null,
       onSelectedShapeChange = null,
       textModalProps = null,
+      pathToShape = false,
     },
     ref
   ) => {
@@ -85,6 +86,12 @@ const SkiaIllustrator = React.forwardRef(
     // MW - Tool States
     const [currentTool, setCurrentTool] = React.useState('control');
     const [currentColour, setCurrentColour] = React.useState('black');
+    const [pathToShapeEnabled, setPathToShapeEnabled] =
+      React.useState(!!pathToShape);
+
+    useEffect(() => {
+      setPathToShapeEnabled(!!pathToShape);
+    }, [pathToShape]);
 
     // MW - Notify the parent whenever the active tool changes so they can update the ui.
     useEffect(() => {
@@ -283,26 +290,19 @@ const SkiaIllustrator = React.forwardRef(
       [onSelectedShapeChange]
     );
 
-    const {
-      buildSnapshot,
-      pushHistory,
-      undo,
-      redo,
-      historySize,
-      canUndo,
-      canRedo,
-    } = useUndoRedo({
-      shapes,
-      allStrokesRef,
-      layersRef,
-      setShapeList,
-      setAllStrokesPath,
-      setLayers,
-      selectedShapeId,
-      selectedShapeBounds,
-      selectedShapeRotation,
-      notifySelectedShapeChange,
-    });
+    const { buildSnapshot, pushHistory, undo, redo, canUndo, canRedo } =
+      useUndoRedo({
+        shapes,
+        allStrokesRef,
+        layersRef,
+        setShapeList,
+        setAllStrokesPath,
+        setLayers,
+        selectedShapeId,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        notifySelectedShapeChange,
+      });
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(8);
@@ -341,10 +341,69 @@ const SkiaIllustrator = React.forwardRef(
         colour,
         thickness = 1,
         isEraser = false,
-        isHighlighter = false
+        isHighlighter = false,
+        inputInfo = null
       ) => {
         // MW - Snapshot before this stroke is committed.
         pushHistory(buildSnapshot(shapes.value));
+
+        if (pathToShapeEnabled && !isEraser && !isHighlighter) {
+          const bounds = path.getBounds();
+          const pad = Math.max((thickness ?? 1) / 2, 1);
+          const pathBounds = {
+            x: bounds.x - pad,
+            y: bounds.y - pad,
+            width: Math.max(bounds.width + pad * 2, 1),
+            height: Math.max(bounds.height + pad * 2, 1),
+          };
+          const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          const pathShape = {
+            id: `path-${ts}`,
+            type: 'path',
+            x: pathBounds.x,
+            y: pathBounds.y,
+            width: pathBounds.width,
+            height: pathBounds.height,
+            pathSvg: path.toSVGString(),
+            pathBounds,
+            colour,
+            thickness,
+            rotation: 0,
+            layer: activeLayerIdRef.current,
+            inputType: inputInfo?.isStylus ? 'stylus' : 'touch',
+            pressure: inputInfo
+              ? {
+                  start: inputInfo.startPressure ?? 1,
+                  end: inputInfo.endPressure ?? 1,
+                }
+              : undefined,
+          };
+          const next = [...shapes.value, pathShape];
+          shapes.value = next;
+          setShapeList(next);
+          selectedShapeId.value = pathShape.id;
+          selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
+          selectedShapeBounds.value = {
+            x: pathShape.x,
+            y: pathShape.y,
+            width: pathShape.width,
+            height: pathShape.height,
+          };
+          selectedShapeRotation.value = 0;
+          notifyChange(shapes);
+          notifyChange(selectedShapeId);
+          notifyChange(selectedShapeBounds);
+          notifyChange(selectedShapeRotation);
+          notifySelectedShapeChange(pathShape.id);
+
+          if (resetTimer.current) clearTimeout(resetTimer.current);
+          resetTimer.current = setTimeout(() => {
+            activeStrokePath.value = Skia.Path.Make();
+            notifyChange(activeStrokePath);
+            resetTimer.current = null;
+          }, 200);
+          return;
+        }
 
         // MW - When erasing: any shape/icon/text whose AABB overlaps the
         // eraser stroke is deleted outright. (Previously overlapping shapes
@@ -411,6 +470,7 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory,
         buildSnapshot,
         shapes,
+        pathToShapeEnabled,
         selectedShapeId,
         selectedShapeBounds,
         selectedShapeRotation,
@@ -670,7 +730,7 @@ const SkiaIllustrator = React.forwardRef(
         // :)
         setCurrentTool('control');
       },
-      [pushHistory, buildSnapshot, shapes]
+      [pushHistory, buildSnapshot, shapes, selectedShapeBounds]
     );
 
     // MW - Drag-to-create: mount a shape that already exists in shapes.value
@@ -1161,153 +1221,176 @@ const SkiaIllustrator = React.forwardRef(
       notifySelectedShapeChange,
     ]);
 
-    const setColour = (colour) => {
-      setCurrentColour(colour);
+    const setColour = React.useCallback(
+      (colour) => {
+        setCurrentColour(colour);
 
-      const shapeId = selectedShapeId.value;
+        const shapeId = selectedShapeId.value;
 
-      if (!shapeId) {
-        // No shape selected — update the global paint/stroke colour used for
-        // new strokes and shapes.
+        if (!shapeId) {
+          // No shape selected — update the global paint/stroke colour used for
+          // new strokes and shapes.
+          activeStrokeColour.value = colour;
+          return;
+        }
+
+        const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+        if (shapeIndex === -1) {
+          activeStrokeColour.value = colour;
+          return;
+        }
+
+        pushHistory(buildSnapshot(shapes.value));
+        const updatedShape = {
+          ...shapes.value[shapeIndex],
+          colour,
+        };
+
+        // MW - Reassign a new array (not in-place mutation) so Reanimated
+        // propagates the change to the UI thread and ShapeNode's derived colour
+        // re-evaluates. Mutating shapes.value[i] directly would not update the
+        // UI-thread copy, so the rendered colour would never change.
+        const updatedShapes = [...shapes.value];
+        updatedShapes[shapeIndex] = updatedShape;
+        shapes.value = updatedShapes;
+        // MW - Also update the global active colour so newly placed shapes use
+        // the same colour as the one just changed.
         activeStrokeColour.value = colour;
-        return;
-      }
+        notifyChange(shapes);
+      },
+      [activeStrokeColour, shapes, selectedShapeId, pushHistory, buildSnapshot]
+    );
 
-      const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
-      if (shapeIndex === -1) {
-        activeStrokeColour.value = colour;
-        return;
-      }
+    const setBrushSize = React.useCallback(
+      (size) => {
+        activeStrokeThickness.value = size;
 
-      pushHistory(buildSnapshot(shapes.value));
-      const updatedShape = {
-        ...shapes.value[shapeIndex],
-        colour,
-      };
+        const shapeId = selectedShapeId.value;
+        if (!shapeId) return;
 
-      // MW - Reassign a new array (not in-place mutation) so Reanimated
-      // propagates the change to the UI thread and ShapeNode's derived colour
-      // re-evaluates. Mutating shapes.value[i] directly would not update the
-      // UI-thread copy, so the rendered colour would never change.
-      const updatedShapes = [...shapes.value];
-      updatedShapes[shapeIndex] = updatedShape;
-      shapes.value = updatedShapes;
-      // MW - Also update the global active colour so newly placed shapes use
-      // the same colour as the one just changed.
-      activeStrokeColour.value = colour;
-      notifyChange(shapes);
-    };
+        const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+        if (shapeIndex === -1) return;
 
-    const setBrushSize = (size) => {
-      activeStrokeThickness.value = size;
+        const shape = shapes.value[shapeIndex];
+        // MW - Text size is handled by setFontSize, not the brush slider.
+        if (shape.type === 'text') return;
 
-      const shapeId = selectedShapeId.value;
-      if (!shapeId) return;
+        pushHistory(buildSnapshot(shapes.value));
 
-      const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
-      if (shapeIndex === -1) return;
+        // MW - Map the slider value to a canvas size using the same * 5 factor
+        // used when placing new shapes (slider range 2–40 → canvas size 10–200).
+        const newSize = size * 5;
 
-      const shape = shapes.value[shapeIndex];
-      // MW - Text size is handled by setFontSize, not the brush slider.
-      if (shape.type === 'text') return;
+        let updatedShape;
+        if (shape.type === 'circle') {
+          updatedShape = { ...shape, radius: newSize / 2 };
+        } else {
+          // MW - Scale width/height proportionally to preserve the shape's aspect ratio.
+          const aspect = shape.width > 0 ? shape.height / shape.width : 1;
+          updatedShape = {
+            ...shape,
+            width: newSize,
+            height: newSize * aspect,
+          };
+        }
 
-      pushHistory(buildSnapshot(shapes.value));
+        const updatedShapes = [...shapes.value];
+        updatedShapes[shapeIndex] = updatedShape;
+        shapes.value = updatedShapes;
+        setShapeList(updatedShapes);
+        notifyChange(shapes);
 
-      // MW - Map the slider value to a canvas size using the same * 5 factor
-      // used when placing new shapes (slider range 2–40 → canvas size 10–200).
-      const newSize = size * 5;
-
-      let updatedShape;
-      if (shape.type === 'circle') {
-        updatedShape = { ...shape, radius: newSize / 2 };
-      } else {
-        // MW - Scale width/height proportionally to preserve the shape's aspect ratio.
-        const aspect = shape.width > 0 ? shape.height / shape.width : 1;
-        updatedShape = {
-          ...shape,
-          width: newSize,
-          height: newSize * aspect,
-        };
-      }
-
-      const updatedShapes = [...shapes.value];
-      updatedShapes[shapeIndex] = updatedShape;
-      shapes.value = updatedShapes;
-      setShapeList(updatedShapes);
-      notifyChange(shapes);
-
-      // MW - Keep the selection outline in sync with the new dimensions.
-      if (updatedShape.type === 'circle') {
-        selectedShapeBounds.value = {
-          x: updatedShape.x - updatedShape.radius,
-          y: updatedShape.y - updatedShape.radius,
-          width: updatedShape.radius * 2,
-          height: updatedShape.radius * 2,
-        };
-      } else {
-        selectedShapeBounds.value = {
-          x: updatedShape.x,
-          y: updatedShape.y,
-          width: updatedShape.width,
-          height: updatedShape.height,
-        };
-      }
-      notifyChange(selectedShapeBounds);
-    };
-
-    const setFontSize = (size) => {
-      const shapeId = selectedShapeId.value;
-
-      activeFontSize.value = size;
-
-      if (!shapeId) {
-        // Set global font size for new text shapes if no shape is selected.
-        return;
-      }
-
-      const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
-      if (shapeIndex === -1) return;
-
-      const updatedShape = {
-        ...shapes.value[shapeIndex],
-        fontSize: size,
-      };
-
-      // MW - Re-measure the glyphs at the new size and store the real
-      // width/height on the shape so the hit-test, selection box and rotation
-      // pivot all stay exact as the text resizes.
-      if (updatedShape.type === 'text') {
-        const { width: tw, height: th } = measureText(
-          updatedShape.content,
-          size
-        );
-        updatedShape.width = tw;
-        updatedShape.height = th;
-      }
-
-      // MW - Reassign a new array (not in-place mutation) so Reanimated
-      // propagates the change to the UI thread and ShapeNode's derived font
-      // re-evaluates. Mutating shapes.value[i] directly would not update the
-      // UI-thread copy, so the rendered text size would never change.
-      pushHistory(buildSnapshot(shapes.value));
-      const updatedShapes = [...shapes.value];
-      updatedShapes[shapeIndex] = updatedShape;
-      shapes.value = updatedShapes;
-      setShapeList(updatedShapes);
-      notifyChange(shapes);
-
-      // MW - Keep the selection outline glued to the text as it resizes. Text
-      // draws from its baseline, so the box top sits one text-height above y.
-      if (updatedShape.type === 'text') {
-        selectedShapeBounds.value = {
-          x: updatedShape.x,
-          y: updatedShape.y - updatedShape.height,
-          width: updatedShape.width,
-          height: updatedShape.height,
-        };
+        // MW - Keep the selection outline in sync with the new dimensions.
+        if (updatedShape.type === 'circle') {
+          selectedShapeBounds.value = {
+            x: updatedShape.x - updatedShape.radius,
+            y: updatedShape.y - updatedShape.radius,
+            width: updatedShape.radius * 2,
+            height: updatedShape.radius * 2,
+          };
+        } else {
+          selectedShapeBounds.value = {
+            x: updatedShape.x,
+            y: updatedShape.y,
+            width: updatedShape.width,
+            height: updatedShape.height,
+          };
+        }
         notifyChange(selectedShapeBounds);
-      }
-    };
+      },
+      [
+        activeStrokeThickness,
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        pushHistory,
+        buildSnapshot,
+      ]
+    );
+
+    const setFontSize = React.useCallback(
+      (size) => {
+        const shapeId = selectedShapeId.value;
+
+        activeFontSize.value = size;
+
+        if (!shapeId) {
+          // Set global font size for new text shapes if no shape is selected.
+          return;
+        }
+
+        const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+        if (shapeIndex === -1) return;
+
+        const updatedShape = {
+          ...shapes.value[shapeIndex],
+          fontSize: size,
+        };
+
+        // MW - Re-measure the glyphs at the new size and store the real
+        // width/height on the shape so the hit-test, selection box and rotation
+        // pivot all stay exact as the text resizes.
+        if (updatedShape.type === 'text') {
+          const { width: tw, height: th } = measureText(
+            updatedShape.content,
+            size
+          );
+          updatedShape.width = tw;
+          updatedShape.height = th;
+        }
+
+        // MW - Reassign a new array (not in-place mutation) so Reanimated
+        // propagates the change to the UI thread and ShapeNode's derived font
+        // re-evaluates. Mutating shapes.value[i] directly would not update the
+        // UI-thread copy, so the rendered text size would never change.
+        pushHistory(buildSnapshot(shapes.value));
+        const updatedShapes = [...shapes.value];
+        updatedShapes[shapeIndex] = updatedShape;
+        shapes.value = updatedShapes;
+        setShapeList(updatedShapes);
+        notifyChange(shapes);
+
+        // MW - Keep the selection outline glued to the text as it resizes. Text
+        // draws from its baseline, so the box top sits one text-height above y.
+        if (updatedShape.type === 'text') {
+          selectedShapeBounds.value = {
+            x: updatedShape.x,
+            y: updatedShape.y - updatedShape.height,
+            width: updatedShape.width,
+            height: updatedShape.height,
+          };
+          notifyChange(selectedShapeBounds);
+        }
+      },
+      [
+        activeFontSize,
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        pushHistory,
+        buildSnapshot,
+      ]
+    );
 
     // MW - Set the text content. When a text shape is selected its content is
     // updated (and re-measured) in place; otherwise the value becomes the
@@ -1363,7 +1446,14 @@ const SkiaIllustrator = React.forwardRef(
         // No text shape selected — remember it for the next placed text.
         defaultTextContentRef.current = value || ' ';
       },
-      [shapes, selectedShapeId, selectedShapeBounds, pushHistory, buildSnapshot]
+      [
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        pushHistory,
+        buildSnapshot,
+        deletedSelectedShape,
+      ]
     );
 
     // MW - Create a new user layer inserted above 'shapes' (before 'text').
@@ -1722,7 +1812,7 @@ const SkiaIllustrator = React.forwardRef(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const saveCanvasAsImage = async () => {
+    const saveCanvasAsImage = React.useCallback(async () => {
       const surface = Skia.Surface.MakeOffscreen(
         resolvedCanvas.width,
         resolvedCanvas.height
@@ -1826,6 +1916,34 @@ const SkiaIllustrator = React.forwardRef(
                 return;
               }
 
+              if (type === 'path') {
+                const customPath = shape.pathSvg
+                  ? Skia.Path.MakeFromSVGString(shape.pathSvg)
+                  : null;
+                if (customPath) {
+                  const source = shape.pathBounds ?? {
+                    x,
+                    y,
+                    width: w || 1,
+                    height: h || 1,
+                  };
+                  const sourceWidth = source.width || 1;
+                  const sourceHeight = source.height || 1;
+                  canvas.save();
+                  canvas.rotate(rotation ?? 0, x + w / 2, y + h / 2);
+                  canvas.translate(x, y);
+                  canvas.scale(w / sourceWidth, h / sourceHeight);
+                  canvas.translate(-(source.x ?? 0), -(source.y ?? 0));
+                  paint.setStyle(PaintStyle.Stroke);
+                  paint.setStrokeWidth(shape.thickness ?? 8);
+                  paint.setStrokeCap(StrokeCap.Round);
+                  paint.setStrokeJoin(StrokeJoin.Round);
+                  canvas.drawPath(customPath, paint);
+                  canvas.restore();
+                }
+                return;
+              }
+
               if (type === 'text') {
                 const fontSize = shape.fontSize || 32;
                 const font = Skia.Font(getSharedTypeface(), fontSize);
@@ -1867,14 +1985,14 @@ const SkiaIllustrator = React.forwardRef(
       const base64 = imageSnapshot.encodeToBase64();
 
       return `data:image/png;base64,${base64}`;
-    };
+    }, [resolvedCanvas, backgroundImage, layers, allStrokesPath, shapes]);
 
-    const closeKeyboard = () => {
+    const closeKeyboard = React.useCallback(() => {
       if (editorVisible) {
         cancelEditor();
       }
       Keyboard.dismiss();
-    };
+    }, [editorVisible, cancelEditor]);
 
     // MW - Memoise the window-sized canvas style so a new object isn't
     // allocated on every render (only when the window dimensions change).
@@ -1893,6 +2011,10 @@ const SkiaIllustrator = React.forwardRef(
         getCurrentColour: () => currentColour,
         setBrushSize,
         getCurrentBrushSize: () => activeStrokeThickness.value,
+        setPathToShape: (enabled) => setPathToShapeEnabled(!!enabled),
+        getPathToShape: () => pathToShapeEnabled,
+        setPathToShapeEnabled: (enabled) => setPathToShapeEnabled(!!enabled),
+        isPathToShapeEnabled: () => pathToShapeEnabled,
         saveCanvasAsImage,
         serializeCanvas,
         loadCanvas,
@@ -2059,26 +2181,30 @@ const SkiaIllustrator = React.forwardRef(
       [
         currentTool,
         currentColour,
-        allStrokesPath,
-        resolvedCanvas,
-        backgroundImage,
         shapes,
         selectedShapeId,
-        selectedShapeStart,
         selectedShapeBounds,
-        selectedShapeRotation,
-        notifySelectedShapeChange,
-        addText,
+        clearCanvas,
+        setColour,
+        setBrushSize,
+        setFontSize,
+        saveCanvasAsImage,
+        buildSnapshot,
+        pushHistory,
         deletedSelectedShape,
+        clearSelection,
+        closeKeyboard,
         activeStrokeThickness,
         activeFontSize,
+        activeIconAspect,
+        pathToShapeEnabled,
         shapeToolType,
         setText,
         undo,
         redo,
-        historySize,
+        canUndo,
+        canRedo,
         layers,
-        activeLayerId,
         addLayer,
         removeLayer,
         moveShapeToLayer,

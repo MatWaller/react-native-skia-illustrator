@@ -71,6 +71,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   const colour = useSharedValue(currentShape?.colour ?? 'black');
   const rotation = useSharedValue(currentShape?.rotation ?? 0);
   const fontSize = useSharedValue(currentShape?.fontSize ?? 32);
+  const thickness = useSharedValue(currentShape?.thickness ?? 8);
   const exists = useSharedValue(!!currentShape);
 
   useAnimatedReaction(
@@ -89,6 +90,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
       colour.value = shape.colour ?? 'black';
       rotation.value = shape.rotation ?? 0;
       fontSize.value = shape.fontSize ?? 32;
+      thickness.value = shape.thickness ?? 8;
     },
     [shapeID]
   );
@@ -98,7 +100,9 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   // useMemo (the previous approach) only rebuilt the font on re-render, so the
   // text stayed the same size while the selection box grew/shrank under the
   // gesture.
-  const textFont = useDerivedValue(() => Skia.Font(typeface, fontSize.value || 32));
+  const textFont = useDerivedValue(() =>
+    Skia.Font(typeface, fontSize.value || 32)
+  );
 
   const linePath = useDerivedValue(() => {
     const sx = x.value;
@@ -211,6 +215,46 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
     m.scale(sx, sy);
     return m;
   });
+
+  const customPath = React.useMemo(() => {
+    if (!currentShape?.pathSvg) return null;
+    return Skia.Path.MakeFromSVGString(currentShape.pathSvg);
+  }, [currentShape?.pathSvg]);
+
+  const customPathMatrix = useDerivedValue(() => {
+    if (shapeType !== 'path') return Skia.Matrix();
+    const source = currentShape?.pathBounds ?? {
+      x: currentShape?.x ?? 0,
+      y: currentShape?.y ?? 0,
+      width: currentShape?.width ?? 1,
+      height: currentShape?.height ?? 1,
+    };
+    const sourceWidth = source.width || 1;
+    const sourceHeight = source.height || 1;
+    const m = Skia.Matrix();
+    m.translate(x.value, y.value);
+    m.scale(width.value / sourceWidth, height.value / sourceHeight);
+    m.translate(-(source.x ?? 0), -(source.y ?? 0));
+    return m;
+  });
+
+  if (shapeType === 'path') {
+    if (!customPath) return null;
+    return (
+      <Group origin={origin} transform={transform}>
+        <Group matrix={customPathMatrix}>
+          <Path
+            path={customPath}
+            color={colour}
+            style="stroke"
+            strokeWidth={thickness}
+            strokeCap="round"
+            strokeJoin="round"
+          />
+        </Group>
+      </Group>
+    );
+  }
 
   if (shapeType === 'icon') {
     if (!iconSkiaPath) return null;

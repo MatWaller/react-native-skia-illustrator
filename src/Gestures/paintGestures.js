@@ -16,6 +16,20 @@ export const createPaintGestures = ({
 }) => {
   const lastX = makeMutable(0);
   const lastY = makeMutable(0);
+  const startPressure = makeMutable(1);
+  const lastPressure = makeMutable(1);
+  const isStylusInput = makeMutable(false);
+
+  const getPressure = (event) => {
+    'worklet';
+    const pressure = event.pressure ?? event.stylusData?.pressure ?? 1;
+    return pressure > 0 ? pressure : 1;
+  };
+
+  const getIsStylusInput = (event) => {
+    'worklet';
+    return event.pointerType === 'stylus' || event.stylusData != null;
+  };
 
   const getCanvasPoint = (x, y) => {
     'worklet';
@@ -46,6 +60,9 @@ export const createPaintGestures = ({
       activeStrokePath.value = path;
       lastX.value = pt.x;
       lastY.value = pt.y;
+      startPressure.value = getPressure(event);
+      lastPressure.value = startPressure.value;
+      isStylusInput.value = getIsStylusInput(event);
     })
     .onUpdate((event) => {
       'worklet';
@@ -70,6 +87,10 @@ export const createPaintGestures = ({
       path.quadTo(lastX.value, lastY.value, midX, midY);
       lastX.value = x;
       lastY.value = y;
+      lastPressure.value = getPressure(event);
+      if (getIsStylusInput(event)) {
+        isStylusInput.value = true;
+      }
       notifyChange(activeStrokePath);
     })
     .onEnd(() => {
@@ -81,7 +102,12 @@ export const createPaintGestures = ({
         activeStrokeColour.value,
         activeStrokeThickness.value,
         isEraser,
-        isHighlighter
+        isHighlighter,
+        {
+          isStylus: isStylusInput.value,
+          startPressure: startPressure.value,
+          endPressure: lastPressure.value,
+        }
       );
     });
 

@@ -167,6 +167,7 @@ function AppContent() {
             onToolChange={handleToolChange}
             onSelectedShapeChange={setHasSelectedShape}
             textModalProps={textModalProps}
+            pathToShape={true}
           />
           <TopHud
             activeMeta={activeMeta}
