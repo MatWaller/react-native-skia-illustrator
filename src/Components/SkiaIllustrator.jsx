@@ -1037,6 +1037,7 @@ const SkiaIllustrator = React.forwardRef(
         case 'highlighter':
           return paintGesture;
         case 'shape':
+        case 'icon':
           // MW - Drag on empty canvas creates + sizes a shape in real time;
           // drag on an existing shape moves it (handled inside
           // dragPlaceShapeGesture). Tap places a default-size shape, selects an
