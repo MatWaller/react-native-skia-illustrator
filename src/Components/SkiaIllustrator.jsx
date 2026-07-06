@@ -140,7 +140,7 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Default content used when placing a new text shape. Consumers can
     // override it through the setText() imperative method.
-    const defaultTextContentRef = React.useRef('New Text');
+    const defaultTextContentRef = React.useRef('');
 
     const [shapeList, setShapeList] = useState(() => shapes.value);
     // MW - null = no shape/icon picked in the toolbar yet. While null, a drag in

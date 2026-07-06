@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { getShapeAABB, getShapeLayer, PAPER_SIZE } from '../utils/shapeUtils';
+import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 
 const DEFAULT_LAYERS = [
   { id: 'underlayer', name: 'Under Paint' },
@@ -523,6 +524,12 @@ const TextEditor = ({
           >
             <span style={props?.cancelButtonTextStyle ?? undefined}>
               {props?.cancelLabel ?? 'Cancel'}
+              <FontAwesomeIcon
+                icon={['fad', props?.cancelIcon ?? 'xmark']}
+                size={11}
+                color="white"
+                style={{ marginLeft: 6 }}
+              />
             </span>
           </button>
           <button
@@ -1851,7 +1858,7 @@ const webStyles = {
     zIndex: 1,
     width: 'min(420px, calc(100% - 32px))',
     padding: 18,
-    borderRadius: 16,
+    borderRadius: 10,
     background: '#ffffff',
     boxShadow: '0 20px 60px rgba(15,23,42,0.22)',
     display: 'grid',
@@ -1892,7 +1899,7 @@ const webStyles = {
   },
   cancelButton: {
     border: 0,
-    borderRadius: 999,
+    borderRadius: 10,
     padding: '10px 16px',
     background: '#e2e8f0',
     color: '#0f172a',
@@ -1900,7 +1907,7 @@ const webStyles = {
   },
   submitButton: {
     border: 0,
-    borderRadius: 999,
+    borderRadius: 10,
     padding: '10px 16px',
     background: '#6366f1',
     color: '#ffffff',
