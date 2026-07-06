@@ -215,31 +215,34 @@ const TextEditingModal = ({
               onSubmitEditing={multiline ? undefined : onSubmit}
             />
             <View style={[styles.buttonRow, buttonRowStyle]}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.button,
-                  styles.cancelButton,
-                  cancelButtonStyle,
-                  pressed && styles.buttonPressed,
-                ]}
-                onPress={onCancel}
-              >
-                <View style={styles.buttonContent}>
-                  <Text
-                    style={[styles.cancelButtonText, cancelButtonTextStyle]}
-                  >
-                    {cancelLabel}
-                  </Text>
-                  {cancelIcon ? (
-                    <FontAwesomeIcon
-                      icon={cancelIcon}
-                      size={13}
-                      color="#3c4043"
-                      style={styles.buttonIcon}
-                    />
-                  ) : null}
-                </View>
-              </Pressable>
+              {cancelLabel ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.button,
+                    styles.cancelButton,
+                    cancelButtonStyle,
+                    pressed && styles.buttonPressed,
+                  ]}
+                  onPress={onCancel}
+                >
+                  <View style={styles.buttonContent}>
+                    <Text
+                      style={[styles.cancelButtonText, cancelButtonTextStyle]}
+                    >
+                      {cancelLabel}
+                    </Text>
+                    {cancelIcon ? (
+                      <FontAwesomeIcon
+                        icon={cancelIcon}
+                        size={13}
+                        color="#3c4043"
+                        style={styles.buttonIcon}
+                      />
+                    ) : null}
+                  </View>
+                </Pressable>
+              ) : null}
+
               <Pressable
                 style={({ pressed }) => [
                   styles.button,
