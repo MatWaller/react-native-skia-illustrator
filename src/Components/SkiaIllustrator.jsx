@@ -77,7 +77,6 @@ const SkiaIllustrator = React.forwardRef(
       onToolChange = null,
       onSelectedShapeChange = null,
       textModalProps = null,
-      pathToShape = false,
     },
     ref
   ) => {
@@ -86,12 +85,7 @@ const SkiaIllustrator = React.forwardRef(
     // MW - Tool States
     const [currentTool, setCurrentTool] = React.useState('control');
     const [currentColour, setCurrentColour] = React.useState('black');
-    const [pathToShapeEnabled, setPathToShapeEnabled] =
-      React.useState(!!pathToShape);
 
-    useEffect(() => {
-      setPathToShapeEnabled(!!pathToShape);
-    }, [pathToShape]);
 
     // MW - Notify the parent whenever the active tool changes so they can update the ui.
     useEffect(() => {
@@ -347,63 +341,63 @@ const SkiaIllustrator = React.forwardRef(
         // MW - Snapshot before this stroke is committed.
         pushHistory(buildSnapshot(shapes.value));
 
-        if (pathToShapeEnabled && !isEraser && !isHighlighter) {
-          const bounds = path.getBounds();
-          const pad = Math.max((thickness ?? 1) / 2, 1);
-          const pathBounds = {
-            x: bounds.x - pad,
-            y: bounds.y - pad,
-            width: Math.max(bounds.width + pad * 2, 1),
-            height: Math.max(bounds.height + pad * 2, 1),
-          };
-          const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-          const pathShape = {
-            id: `path-${ts}`,
-            type: 'path',
-            x: pathBounds.x,
-            y: pathBounds.y,
-            width: pathBounds.width,
-            height: pathBounds.height,
-            pathSvg: path.toSVGString(),
-            pathBounds,
-            colour,
-            thickness,
-            rotation: 0,
-            layer: activeLayerIdRef.current,
-            inputType: inputInfo?.isStylus ? 'stylus' : 'touch',
-            pressure: inputInfo
-              ? {
-                  start: inputInfo.startPressure ?? 1,
-                  end: inputInfo.endPressure ?? 1,
-                }
-              : undefined,
-          };
-          const next = [...shapes.value, pathShape];
-          shapes.value = next;
-          setShapeList(next);
-          selectedShapeId.value = pathShape.id;
-          selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
-          selectedShapeBounds.value = {
-            x: pathShape.x,
-            y: pathShape.y,
-            width: pathShape.width,
-            height: pathShape.height,
-          };
-          selectedShapeRotation.value = 0;
-          notifyChange(shapes);
-          notifyChange(selectedShapeId);
-          notifyChange(selectedShapeBounds);
-          notifyChange(selectedShapeRotation);
-          notifySelectedShapeChange(pathShape.id);
+        // if (pathToShapeEnabled && !isEraser && !isHighlighter) {
+        //   const bounds = path.getBounds();
+        //   const pad = Math.max((thickness ?? 1) / 2, 1);
+        //   const pathBounds = {
+        //     x: bounds.x - pad,
+        //     y: bounds.y - pad,
+        //     width: Math.max(bounds.width + pad * 2, 1),
+        //     height: Math.max(bounds.height + pad * 2, 1),
+        //   };
+        //   const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        //   const pathShape = {
+        //     id: `path-${ts}`,
+        //     type: 'path',
+        //     x: pathBounds.x,
+        //     y: pathBounds.y,
+        //     width: pathBounds.width,
+        //     height: pathBounds.height,
+        //     pathSvg: path.toSVGString(),
+        //     pathBounds,
+        //     colour,
+        //     thickness,
+        //     rotation: 0,
+        //     layer: activeLayerIdRef.current,
+        //     inputType: inputInfo?.isStylus ? 'stylus' : 'touch',
+        //     pressure: inputInfo
+        //       ? {
+        //           start: inputInfo.startPressure ?? 1,
+        //           end: inputInfo.endPressure ?? 1,
+        //         }
+        //       : undefined,
+        //   };
+        //   const next = [...shapes.value, pathShape];
+        //   shapes.value = next;
+        //   setShapeList(next);
+        //   selectedShapeId.value = pathShape.id;
+        //   selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
+        //   selectedShapeBounds.value = {
+        //     x: pathShape.x,
+        //     y: pathShape.y,
+        //     width: pathShape.width,
+        //     height: pathShape.height,
+        //   };
+        //   selectedShapeRotation.value = 0;
+        //   notifyChange(shapes);
+        //   notifyChange(selectedShapeId);
+        //   notifyChange(selectedShapeBounds);
+        //   notifyChange(selectedShapeRotation);
+        //   notifySelectedShapeChange(pathShape.id);
 
-          if (resetTimer.current) clearTimeout(resetTimer.current);
-          resetTimer.current = setTimeout(() => {
-            activeStrokePath.value = Skia.Path.Make();
-            notifyChange(activeStrokePath);
-            resetTimer.current = null;
-          }, 200);
-          return;
-        }
+        //   if (resetTimer.current) clearTimeout(resetTimer.current);
+        //   resetTimer.current = setTimeout(() => {
+        //     activeStrokePath.value = Skia.Path.Make();
+        //     notifyChange(activeStrokePath);
+        //     resetTimer.current = null;
+        //   }, 200);
+        //   return;
+        // }
 
         // MW - When erasing: any shape/icon/text whose AABB overlaps the
         // eraser stroke is deleted outright. (Previously overlapping shapes
@@ -455,7 +449,20 @@ const SkiaIllustrator = React.forwardRef(
         // Commit the eraser/paint stroke.
         setAllStrokesPath((prev) => [
           ...prev,
-          { path, colour, isEraser, isHighlighter, thickness },
+          {
+            path,
+            colour,
+            isEraser,
+            isHighlighter,
+            thickness,
+            inputType: inputInfo?.isStylus ? 'stylus' : 'touch',
+            pressure: inputInfo
+              ? {
+                  start: inputInfo.startPressure ?? 1,
+                  end: inputInfo.endPressure ?? 1,
+                }
+              : undefined,
+          },
         ]);
 
         if (resetTimer.current) clearTimeout(resetTimer.current);
@@ -470,7 +477,6 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory,
         buildSnapshot,
         shapes,
-        pathToShapeEnabled,
         selectedShapeId,
         selectedShapeBounds,
         selectedShapeRotation,
@@ -478,6 +484,109 @@ const SkiaIllustrator = React.forwardRef(
         notifySelectedShapeChange,
       ]
     );
+
+    const buildGroupedPathShape = React.useCallback((strokes, layerId) => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      const pathSegments = [];
+      for (const stroke of strokes) {
+        const { path, thickness, isFilled } = stroke;
+        if (!path) continue;
+
+        const bounds = path.getBounds();
+        const pad = isFilled ? 0 : Math.max((thickness ?? 1) / 2, 1);
+        minX = Math.min(minX, bounds.x - pad);
+        minY = Math.min(minY, bounds.y - pad);
+        maxX = Math.max(maxX, bounds.x + bounds.width + pad);
+        maxY = Math.max(maxY, bounds.y + bounds.height + pad);
+        pathSegments.push({
+          pathSvg: path.toSVGString(),
+          colour: stroke.colour ?? 'black',
+          thickness: thickness ?? 8,
+          isEraser: !!stroke.isEraser,
+          isFilled: !!stroke.isFilled,
+          isHighlighter: !!stroke.isHighlighter,
+          inputType: stroke.inputType,
+          pressure: stroke.pressure,
+        });
+      }
+
+      if (pathSegments.length === 0) return null;
+
+      const pathBounds = {
+        x: minX,
+        y: minY,
+        width: Math.max(maxX - minX, 1),
+        height: Math.max(maxY - minY, 1),
+      };
+      const firstVisibleSegment =
+        pathSegments.find((segment) => !segment.isEraser) ?? pathSegments[0];
+      const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      return {
+        id: `path-${ts}`,
+        type: 'path',
+        x: pathBounds.x,
+        y: pathBounds.y,
+        width: pathBounds.width,
+        height: pathBounds.height,
+        pathSvg: pathSegments.length === 1 ? pathSegments[0].pathSvg : null,
+        pathSegments,
+        pathBounds,
+        colour: firstVisibleSegment.colour ?? 'black',
+        thickness: firstVisibleSegment.thickness ?? 8,
+        rotation: 0,
+        layer: layerId,
+      };
+    }, []);
+
+    const convertAllStrokesToShape = React.useCallback(() => {
+      if (allStrokesPath.length === 0) {
+        return;
+      }
+
+      const pathShape = buildGroupedPathShape(
+        allStrokesPath,
+        activeLayerIdRef.current
+      );
+      if (!pathShape) return;
+
+      pushHistory(buildSnapshot(shapes.value));
+      const next = [...shapes.value, pathShape];
+      shapes.value = next;
+      setShapeList(next);
+      setAllStrokesPath([]);
+
+      selectedShapeId.value = pathShape.id;
+      selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
+      selectedShapeBounds.value = {
+        x: pathShape.x,
+        y: pathShape.y,
+        width: pathShape.width,
+        height: pathShape.height,
+      };
+      selectedShapeRotation.value = 0;
+
+      notifyChange(shapes);
+      notifyChange(selectedShapeId);
+      notifyChange(selectedShapeBounds);
+      notifyChange(selectedShapeRotation);
+      notifySelectedShapeChange(pathShape.id);
+    }, [
+      allStrokesPath,
+      buildGroupedPathShape,
+      buildSnapshot,
+      notifySelectedShapeChange,
+      pushHistory,
+      selectedShapeBounds,
+      selectedShapeId,
+      selectedShapeRotation,
+      selectedShapeStart,
+      shapes,
+    ]);
 
     // MW - Cancel a queued active-stroke reset. Called when a new stroke
     // starts so the previous stroke's delayed timer can't wipe the fresh
@@ -1730,7 +1839,10 @@ const SkiaIllustrator = React.forwardRef(
         colour: stroke.colour,
         thickness: stroke.thickness,
         isEraser: stroke.isEraser,
+        isHighlighter: stroke.isHighlighter,
         isFilled: stroke.isFilled ?? false,
+        inputType: stroke.inputType,
+        pressure: stroke.pressure,
       }));
 
       return JSON.stringify({
@@ -1762,7 +1874,10 @@ const SkiaIllustrator = React.forwardRef(
           colour: s.colour ?? 'black',
           thickness: s.thickness ?? 8,
           isEraser: s.isEraser ?? false,
+          isHighlighter: s.isHighlighter ?? false,
           isFilled: s.isFilled ?? false,
+          inputType: s.inputType,
+          pressure: s.pressure,
         }));
 
         const restoredLayers = data.layers ?? [
@@ -1917,10 +2032,21 @@ const SkiaIllustrator = React.forwardRef(
               }
 
               if (type === 'path') {
-                const customPath = shape.pathSvg
-                  ? Skia.Path.MakeFromSVGString(shape.pathSvg)
-                  : null;
-                if (customPath) {
+                const pathSegments = shape.pathSegments?.length
+                  ? shape.pathSegments
+                  : shape.pathSvg
+                    ? [
+                        {
+                          pathSvg: shape.pathSvg,
+                          colour,
+                          thickness: shape.thickness,
+                          isEraser: false,
+                          isFilled: false,
+                          isHighlighter: false,
+                        },
+                      ]
+                    : [];
+                if (pathSegments.length > 0) {
                   const source = shape.pathBounds ?? {
                     x,
                     y,
@@ -1934,11 +2060,40 @@ const SkiaIllustrator = React.forwardRef(
                   canvas.translate(x, y);
                   canvas.scale(w / sourceWidth, h / sourceHeight);
                   canvas.translate(-(source.x ?? 0), -(source.y ?? 0));
-                  paint.setStyle(PaintStyle.Stroke);
-                  paint.setStrokeWidth(shape.thickness ?? 8);
-                  paint.setStrokeCap(StrokeCap.Round);
-                  paint.setStrokeJoin(StrokeJoin.Round);
-                  canvas.drawPath(customPath, paint);
+                  if (pathSegments.some((segment) => segment.isEraser)) {
+                    canvas.saveLayer();
+                  }
+                  pathSegments.forEach((segment) => {
+                    const customPath = segment.pathSvg
+                      ? Skia.Path.MakeFromSVGString(segment.pathSvg)
+                      : null;
+                    if (!customPath) return;
+                    const segmentPaint = Skia.Paint();
+                    segmentPaint.setColor(Skia.Color(segment.colour ?? colour));
+                    if (segment.isFilled) {
+                      segmentPaint.setStyle(PaintStyle.Fill);
+                    } else {
+                      segmentPaint.setStyle(PaintStyle.Stroke);
+                      segmentPaint.setStrokeWidth(segment.thickness ?? 8);
+                      segmentPaint.setStrokeCap(
+                        segment.isHighlighter
+                          ? StrokeCap.Square
+                          : StrokeCap.Round
+                      );
+                      segmentPaint.setStrokeJoin(
+                        segment.isHighlighter
+                          ? StrokeJoin.Miter
+                          : StrokeJoin.Round
+                      );
+                    }
+                    if (segment.isEraser) {
+                      segmentPaint.setBlendMode(BlendMode.Clear);
+                    }
+                    canvas.drawPath(customPath, segmentPaint);
+                  });
+                  if (pathSegments.some((segment) => segment.isEraser)) {
+                    canvas.restore();
+                  }
                   canvas.restore();
                 }
                 return;
@@ -2005,16 +2160,19 @@ const SkiaIllustrator = React.forwardRef(
       ref,
       () => ({
         clearCanvas,
-        setCurrentTool,
+        setCurrentTool: (tool) => {
+          if (currentTool === 'paint' && tool !== 'paint') {
+            // MW - If leaving the paint tool collapse all current paths into a single committed stroke that they can move and resize.
+            convertAllStrokesToShape();
+          }
+          setCurrentTool(tool);
+        },
         getCurrentTool: () => currentTool,
         setColour,
         getCurrentColour: () => currentColour,
         setBrushSize,
         getCurrentBrushSize: () => activeStrokeThickness.value,
-        setPathToShape: (enabled) => setPathToShapeEnabled(!!enabled),
-        getPathToShape: () => pathToShapeEnabled,
-        setPathToShapeEnabled: (enabled) => setPathToShapeEnabled(!!enabled),
-        isPathToShapeEnabled: () => pathToShapeEnabled,
+        convertAllStrokesToShape,
         saveCanvasAsImage,
         serializeCanvas,
         loadCanvas,
@@ -2188,6 +2346,7 @@ const SkiaIllustrator = React.forwardRef(
         setColour,
         setBrushSize,
         setFontSize,
+        convertAllStrokesToShape,
         saveCanvasAsImage,
         buildSnapshot,
         pushHistory,
@@ -2197,7 +2356,6 @@ const SkiaIllustrator = React.forwardRef(
         activeStrokeThickness,
         activeFontSize,
         activeIconAspect,
-        pathToShapeEnabled,
         shapeToolType,
         setText,
         undo,

@@ -29,12 +29,24 @@ export const useUndoRedo = ({
     (shapesArray) => ({
       shapes: shapesArray.map((s) => ({ ...s })),
       strokes: allStrokesRef.current.map(
-        ({ path, colour, thickness, isEraser, isFilled }) => ({
+        ({
+          path,
+          colour,
+          thickness,
+          isEraser,
+          isFilled,
+          isHighlighter,
+          inputType,
+          pressure,
+        }) => ({
           pathSVG: path.toSVGString(),
           colour,
           thickness,
           isEraser,
           isFilled,
+          isHighlighter,
+          inputType,
+          pressure,
         })
       ),
       layers: layersRef.current.map((l) => ({ ...l })),
@@ -54,12 +66,24 @@ export const useUndoRedo = ({
   const restoreSnapshot = React.useCallback(
     (snapshot) => {
       const restoredStrokes = snapshot.strokes.map(
-        ({ pathSVG, colour, thickness, isEraser, isFilled }) => ({
+        ({
+          pathSVG,
+          colour,
+          thickness,
+          isEraser,
+          isFilled,
+          isHighlighter,
+          inputType,
+          pressure,
+        }) => ({
           path: Skia.Path.MakeFromSVGString(pathSVG) ?? Skia.Path.Make(),
           colour,
           thickness,
           isEraser,
           isFilled,
+          isHighlighter,
+          inputType,
+          pressure,
         })
       );
       const clonedShapes = snapshot.shapes.map((s) => ({ ...s }));

@@ -9,6 +9,7 @@ import {
   Rect,
   Circle,
   Path,
+  Paint,
   Text,
   Skia,
 } from '@shopify/react-native-skia';
@@ -216,10 +217,33 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
     return m;
   });
 
-  const customPath = React.useMemo(() => {
-    if (!currentShape?.pathSvg) return null;
-    return Skia.Path.MakeFromSVGString(currentShape.pathSvg);
-  }, [currentShape?.pathSvg]);
+  const customPathSegments = React.useMemo(() => {
+    if (currentShape?.pathSegments?.length) {
+      return currentShape.pathSegments
+        .map((segment) => ({
+          ...segment,
+          path: segment.pathSvg
+            ? Skia.Path.MakeFromSVGString(segment.pathSvg)
+            : null,
+        }))
+        .filter((segment) => segment.path);
+    }
+
+    if (!currentShape?.pathSvg) return [];
+    const path = Skia.Path.MakeFromSVGString(currentShape.pathSvg);
+    return path
+      ? [
+          {
+            path,
+            colour: currentShape.colour,
+            thickness: currentShape.thickness,
+            isEraser: false,
+            isFilled: false,
+            isHighlighter: false,
+          },
+        ]
+      : [];
+  }, [currentShape]);
 
   const customPathMatrix = useDerivedValue(() => {
     if (shapeType !== 'path') return Skia.Matrix();
@@ -239,18 +263,26 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   });
 
   if (shapeType === 'path') {
-    if (!customPath) return null;
+    if (customPathSegments.length === 0) return null;
+    const hasEraser = customPathSegments.some((segment) => segment.isEraser);
     return (
       <Group origin={origin} transform={transform}>
-        <Group matrix={customPathMatrix}>
-          <Path
-            path={customPath}
-            color={colour}
-            style="stroke"
-            strokeWidth={thickness}
-            strokeCap="round"
-            strokeJoin="round"
-          />
+        <Group
+          matrix={customPathMatrix}
+          layer={hasEraser ? <Paint /> : undefined}
+        >
+          {customPathSegments.map((segment, index) => (
+            <Path
+              key={index}
+              path={segment.path}
+              color={segment.colour ?? colour}
+              style={segment.isFilled ? 'fill' : 'stroke'}
+              strokeWidth={segment.thickness ?? thickness}
+              strokeCap={segment.isHighlighter ? 'square' : 'round'}
+              strokeJoin={segment.isHighlighter ? 'miter' : 'round'}
+              blendMode={segment.isEraser ? 'clear' : 'srcOver'}
+            />
+          ))}
         </Group>
       </Group>
     );

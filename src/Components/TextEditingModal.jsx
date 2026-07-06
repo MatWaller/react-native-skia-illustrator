@@ -61,7 +61,6 @@ const TextEditingModal = ({
   submitIcon = faCheck,
   placeholderTextColor = '#9aa0a6',
   multiline = false,
-  autoFocus = true,
   showHeader = true,
 }) => {
   const inputRef = React.useRef(null);
@@ -101,15 +100,6 @@ const TextEditingModal = ({
   React.useEffect(() => {
     if (!visible) setKeyboardHeight(0);
   }, [visible]);
-
-  // MW - Re-focus whenever the overlay becomes visible so the keyboard opens
-  // immediately on both create and edit. autoFocus alone is unreliable when
-  // the same instance is reused for consecutive edits.
-  React.useEffect(() => {
-    if (!visible || !autoFocus) return;
-    const id = setTimeout(() => inputRef.current?.focus(), 50);
-    return () => clearTimeout(id);
-  }, [visible, autoFocus]);
 
   if (!visible) return null;
 
@@ -206,7 +196,6 @@ const TextEditingModal = ({
               onChangeText={onChangeText}
               placeholder={placeholder}
               placeholderTextColor={placeholderTextColor}
-              autoFocus={autoFocus}
               multiline={multiline}
               autoCapitalize="sentences"
               autoCorrect
