@@ -7,10 +7,15 @@ import {
   StyleSheet,
   Keyboard,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
-import { faCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCheck,
+  faCircleChevronLeft,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
 
 // MW - Text entry overlay used both when placing a new text shape and when
 // editing an existing one. Implemented as a plain absolutely-positioned
@@ -27,12 +32,16 @@ const TextEditingModal = ({
   onChangeText,
   onSubmit,
   onCancel,
+  brandData,
   // MW - Styling overrides.
   overlayStyle,
   backdropStyle,
   cardStyle,
+  modalContainerStyle,
   headerStyle,
+  modalHeaderStyle,
   headerTextStyle,
+  modalHeaderTextStyle,
   titleStyle,
   inputStyle,
   buttonRowStyle,
@@ -56,6 +65,8 @@ const TextEditingModal = ({
   showHeader = true,
 }) => {
   const inputRef = React.useRef(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const MODAL_MARGIN = 20;
 
   // MW - Track the keyboard height so we can reserve that space at the bottom
   // of the overlay. The card then centers in the *visible* area above the
@@ -104,6 +115,12 @@ const TextEditingModal = ({
 
   const header = mode === 'edit' ? editHeader : createHeader;
   const title = mode === 'edit' ? editTitle : createTitle;
+  const primaryColour = brandData?.primarycolour ?? '#1f5f8b';
+  const availableHeight = windowHeight - keyboardHeight - MODAL_MARGIN * 2;
+  const modalMaxHeight = Math.min(
+    windowHeight * 0.9,
+    Math.max(0, availableHeight)
+  );
 
   return (
     <View
@@ -119,81 +136,137 @@ const TextEditingModal = ({
         style={[styles.avoider, { paddingBottom: keyboardHeight }]}
         pointerEvents="box-none"
       >
-        <View style={[styles.card, cardStyle]}>
+        <View
+          style={[
+            styles.card,
+            {
+              borderColor: primaryColour,
+              maxHeight: modalMaxHeight,
+            },
+            cardStyle,
+            modalContainerStyle,
+          ]}
+        >
           {showHeader && header ? (
-            <View style={[styles.header, headerStyle]}>
-              <Text style={[styles.headerText, headerTextStyle]}>{header}</Text>
+            <View
+              style={[
+                styles.header,
+                {
+                  backgroundColor: primaryColour,
+                  borderColor: primaryColour,
+                },
+                headerStyle,
+                modalHeaderStyle,
+              ]}
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.headerIconButton,
+                  pressed && styles.buttonPressed,
+                ]}
+                hitSlop={10}
+                onPress={onCancel}
+                accessibilityRole="button"
+                accessibilityLabel="Close text editor"
+                accessibilityHint="Closes text editor"
+              >
+                <FontAwesomeIcon
+                  icon={faCircleChevronLeft}
+                  size={30}
+                  color="#ffffff"
+                />
+              </Pressable>
+              <View style={styles.headerTitleWrap}>
+                <Text
+                  style={[
+                    styles.headerText,
+                    headerTextStyle,
+                    modalHeaderTextStyle,
+                  ]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {header}
+                </Text>
+              </View>
             </View>
           ) : null}
-          {title ? (
-            <Text style={[styles.title, titleStyle]}>{title}</Text>
-          ) : null}
-          <TextInput
-            ref={inputRef}
-            style={[
-              styles.input,
-              multiline && styles.inputMultiline,
-              inputStyle,
-            ]}
-            value={value}
-            onChangeText={onChangeText}
-            placeholder={placeholder}
-            placeholderTextColor={placeholderTextColor}
-            autoFocus={autoFocus}
-            multiline={multiline}
-            autoCapitalize="sentences"
-            autoCorrect
-            returnKeyType={multiline ? 'default' : 'done'}
-            blurOnSubmit={!multiline}
-            onSubmitEditing={multiline ? undefined : onSubmit}
-          />
-          <View style={[styles.buttonRow, buttonRowStyle]}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                styles.cancelButton,
-                cancelButtonStyle,
-                pressed && styles.buttonPressed,
+          <View style={styles.body}>
+            {title ? (
+              <Text style={[styles.title, titleStyle]}>{title}</Text>
+            ) : null}
+            <TextInput
+              ref={inputRef}
+              style={[
+                styles.input,
+                multiline && styles.inputMultiline,
+                inputStyle,
               ]}
-              onPress={onCancel}
-            >
-              <View style={styles.buttonContent}>
-                <Text style={[styles.cancelButtonText, cancelButtonTextStyle]}>
-                  {cancelLabel}
-                </Text>
-                {cancelIcon ? (
-                  <FontAwesomeIcon
-                    icon={cancelIcon}
-                    size={13}
-                    color="#3c4043"
-                    style={styles.buttonIcon}
-                  />
-                ) : null}
-              </View>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                styles.submitButton,
-                submitButtonStyle,
-                pressed && styles.buttonPressed,
-              ]}
-              onPress={onSubmit}
-            >
-              <View style={styles.buttonContent}>
-                <Text style={[styles.submitButtonText, submitButtonTextStyle]}>
-                  {submitLabel}
-                </Text>
-                {submitIcon ? (
-                  <FontAwesomeIcon
-                    icon={submitIcon}
-                    size={13}
-                    color="#ffffff"
-                    style={styles.buttonIcon}
-                  />
-                ) : null}
-              </View>
-            </Pressable>
+              value={value}
+              onChangeText={onChangeText}
+              placeholder={placeholder}
+              placeholderTextColor={placeholderTextColor}
+              autoFocus={autoFocus}
+              multiline={multiline}
+              autoCapitalize="sentences"
+              autoCorrect
+              returnKeyType={multiline ? 'default' : 'done'}
+              blurOnSubmit={!multiline}
+              onSubmitEditing={multiline ? undefined : onSubmit}
+            />
+            <View style={[styles.buttonRow, buttonRowStyle]}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.cancelButton,
+                  cancelButtonStyle,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={onCancel}
+              >
+                <View style={styles.buttonContent}>
+                  <Text
+                    style={[styles.cancelButtonText, cancelButtonTextStyle]}
+                  >
+                    {cancelLabel}
+                  </Text>
+                  {cancelIcon ? (
+                    <FontAwesomeIcon
+                      icon={cancelIcon}
+                      size={13}
+                      color="#3c4043"
+                      style={styles.buttonIcon}
+                    />
+                  ) : null}
+                </View>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  styles.submitButton,
+                  { backgroundColor: primaryColour },
+                  submitButtonStyle,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={onSubmit}
+              >
+                <View style={styles.buttonContent}>
+                  <Text
+                    style={[styles.submitButtonText, submitButtonTextStyle]}
+                  >
+                    {submitLabel}
+                  </Text>
+                  {submitIcon ? (
+                    <FontAwesomeIcon
+                      icon={submitIcon}
+                      size={13}
+                      color="#ffffff"
+                      style={styles.buttonIcon}
+                    />
+                  ) : null}
+                </View>
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>
@@ -207,42 +280,58 @@ const styles = StyleSheet.create({
     elevation: 1000,
   },
   backdrop: {
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   avoider: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 0,
   },
   card: {
-    width: '100%',
-    maxWidth: 420,
+    width: '90%',
+    maxHeight: '90%',
     backgroundColor: '#ffffff',
-    borderRadius: 10,
-    padding: 20,
+    borderRadius: 8,
+    padding: 0,
+    margin: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowRadius: 4,
+    elevation: 5,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderRightWidth: 0,
+    borderLeftWidth: 0,
+    overflow: 'hidden',
   },
   header: {
-    marginHorizontal: -20,
-    marginTop: -20,
-    marginBottom: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ececf0',
-    backgroundColor: '#f6f6f8',
+    width: '100%',
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderTopRightRadius: 8,
+    borderTopLeftRadius: 8,
+    borderWidth: 2,
+  },
+  headerIconButton: {
+    marginLeft: 10,
+    marginRight: 10,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   headerText: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#1f1f1f',
+    color: '#ffffff',
+  },
+  body: {
+    padding: 20,
   },
   title: {
     fontSize: 16,
@@ -274,13 +363,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     marginLeft: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   buttonContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonIcon: {
     marginLeft: 8,
+    alignSelf: 'center',
   },
   buttonPressed: {
     opacity: 0.7,
@@ -291,6 +384,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: '#3c4043',
     fontSize: 15,
+    lineHeight: 18,
     fontWeight: '500',
   },
   submitButton: {
@@ -299,6 +393,7 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: '#ffffff',
     fontSize: 15,
+    lineHeight: 18,
     fontWeight: '600',
   },
 });
