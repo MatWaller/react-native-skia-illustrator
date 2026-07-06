@@ -9,6 +9,9 @@ import {
   Platform,
 } from 'react-native';
 
+import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
+import { faCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
+
 // MW - Text entry overlay used both when placing a new text shape and when
 // editing an existing one. Implemented as a plain absolutely-positioned
 // overlay (NOT a React Native <Modal>) because this package is frequently
@@ -45,6 +48,8 @@ const TextEditingModal = ({
   placeholder = 'Enter text',
   cancelLabel = 'Cancel',
   submitLabel = 'Done',
+  cancelIcon = faXmark,
+  submitIcon = faCheck,
   placeholderTextColor = '#9aa0a6',
   multiline = false,
   autoFocus = true,
@@ -152,9 +157,19 @@ const TextEditingModal = ({
               ]}
               onPress={onCancel}
             >
-              <Text style={[styles.cancelButtonText, cancelButtonTextStyle]}>
-                {cancelLabel}
-              </Text>
+              <View style={styles.buttonContent}>
+                <Text style={[styles.cancelButtonText, cancelButtonTextStyle]}>
+                  {cancelLabel}
+                </Text>
+                {cancelIcon ? (
+                  <FontAwesomeIcon
+                    icon={cancelIcon}
+                    size={13}
+                    color="#3c4043"
+                    style={styles.buttonIcon}
+                  />
+                ) : null}
+              </View>
             </Pressable>
             <Pressable
               style={({ pressed }) => [
@@ -165,9 +180,19 @@ const TextEditingModal = ({
               ]}
               onPress={onSubmit}
             >
-              <Text style={[styles.submitButtonText, submitButtonTextStyle]}>
-                {submitLabel}
-              </Text>
+              <View style={styles.buttonContent}>
+                <Text style={[styles.submitButtonText, submitButtonTextStyle]}>
+                  {submitLabel}
+                </Text>
+                {submitIcon ? (
+                  <FontAwesomeIcon
+                    icon={submitIcon}
+                    size={13}
+                    color="#ffffff"
+                    style={styles.buttonIcon}
+                  />
+                ) : null}
+              </View>
             </Pressable>
           </View>
         </View>
@@ -194,7 +219,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: 10,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
@@ -249,6 +274,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     marginLeft: 10,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonIcon: {
+    marginLeft: 8,
   },
   buttonPressed: {
     opacity: 0.7,

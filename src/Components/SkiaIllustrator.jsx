@@ -39,7 +39,6 @@ import {
   Group,
   Path,
   Paint,
-  Rect,
   Circle,
   Box,
   BoxShadow,
