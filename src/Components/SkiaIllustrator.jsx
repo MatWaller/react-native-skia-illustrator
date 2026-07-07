@@ -345,7 +345,6 @@ const SkiaIllustrator = React.forwardRef(
     const activeStrokePath = useSharedValue(Skia.Path.Make());
     const activeStrokeColour = useSharedValue('black');
 
-
     const strokeStartCountRef = React.useRef(0);
     const pendingClearGenRef = React.useRef(null);
 
@@ -2161,8 +2160,14 @@ const SkiaIllustrator = React.forwardRef(
       }
 
       // MW - Draw layers in render order (bottom to top). Background image is
-      // always beneath all layers and has already been drawn above.
-      layers.forEach((layer) => {
+      // always beneath all layers and has already been drawn above. The drawing
+      // layer is drawn last so committed paint remains above shapes/text,
+      // matching the live active-stroke overlay in the interactive canvas.
+      const orderedSaveLayers = [
+        ...layers.filter((layer) => layer.id !== 'drawing'),
+        ...layers.filter((layer) => layer.id === 'drawing'),
+      ];
+      orderedSaveLayers.forEach((layer) => {
         if (layer.id === 'drawing') {
           // MW - saveLayer creates an isolated offscreen compositing buffer.
           // BlendMode.Clear on eraser strokes only erases within this buffer,
@@ -2657,60 +2662,9 @@ const SkiaIllustrator = React.forwardRef(
                       all layers. The drawing layer gets an isolated offscreen
                       buffer so the eraser blendMode works correctly without
                       affecting shapes or text on other layers. */}
-                  {layers.map((layer) => {
-                    if (layer.id === 'drawing') {
-                      return (
-                        <Group key="drawing" layer={<Paint />}>
-                          {allStrokesPath.map((stroke, index) =>
-                            stroke.isFilled ? (
-                              <Path
-                                key={index}
-                                path={stroke.path}
-                                color={stroke.colour}
-                                style="fill"
-                                blendMode="srcOver"
-                              />
-                            ) : (
-                              <Path
-                                key={index}
-                                path={stroke.path}
-                                color={stroke.colour}
-                                style="stroke"
-                                strokeWidth={stroke.thickness || 8}
-                                strokeCap={
-                                  stroke.isHighlighter ? 'square' : 'round'
-                                }
-                                strokeJoin={
-                                  stroke.isHighlighter ? 'miter' : 'round'
-                                }
-                                blendMode={
-                                  stroke.isEraser ? 'clear' : 'srcOver'
-                                }
-                              />
-                            )
-                          )}
-                          {/* MW - Eraser preview only. Kept INSIDE the drawing
-                              layer's offscreen buffer so its `clear` blendMode
-                              erases committed paint without punching through to
-                              the shapes/background beneath. Paint & highlighter
-                              previews are rendered on top of every layer
-                              instead (see below) so the in-progress line is
-                              always visible above shapes and text. */}
-                          {currentTool === 'eraser' && (
-                            <Path
-                              path={activeStrokePath}
-                              color={activeStrokeRenderColour}
-                              style="stroke"
-                              strokeWidth={activeStrokeThickness}
-                              strokeCap="round"
-                              strokeJoin="round"
-                              blendMode="clear"
-                            />
-                          )}
-                        </Group>
-                      );
-                    }
-                    return (
+                  {layers
+                    .filter((layer) => layer.id !== 'drawing')
+                    .map((layer) => (
                       <Group key={layer.id}>
                         {shapeList
                           .filter((s) => getShapeLayer(s) === layer.id)
@@ -2723,13 +2677,57 @@ const SkiaIllustrator = React.forwardRef(
                             />
                           ))}
                       </Group>
-                    );
-                  })}
+                    ))}
+                  <Group key="drawing" layer={<Paint />}>
+                    {allStrokesPath.map((stroke, index) =>
+                      stroke.isFilled ? (
+                        <Path
+                          key={index}
+                          path={stroke.path}
+                          color={stroke.colour}
+                          style="fill"
+                          blendMode="srcOver"
+                        />
+                      ) : (
+                        <Path
+                          key={index}
+                          path={stroke.path}
+                          color={stroke.colour}
+                          style="stroke"
+                          strokeWidth={stroke.thickness || 8}
+                          strokeCap={stroke.isHighlighter ? 'square' : 'round'}
+                          strokeJoin={stroke.isHighlighter ? 'miter' : 'round'}
+                          blendMode={stroke.isEraser ? 'clear' : 'srcOver'}
+                        />
+                      )
+                    )}
+                    {/* MW - Eraser clear pass. Kept INSIDE the drawing
+                          layer's offscreen buffer so its `clear` blendMode
+                          erases committed paint without punching through to
+                          the shapes/background beneath. A separate visual
+                          preview is rendered on top of every layer below. */}
+                    {currentTool === 'eraser' && (
+                      <Path
+                        path={activeStrokePath}
+                        color={activeStrokeRenderColour}
+                        style="stroke"
+                        strokeWidth={activeStrokeThickness}
+                        strokeCap="round"
+                        strokeJoin="round"
+                        blendMode="clear"
+                      />
+                    )}
+                  </Group>
                   {(currentTool === 'paint' ||
-                    currentTool === 'highlighter') && (
+                    currentTool === 'highlighter' ||
+                    currentTool === 'eraser') && (
                     <Path
                       path={activeStrokePath}
-                      color={activeStrokeRenderColour}
+                      color={
+                        currentTool === 'eraser'
+                          ? 'rgba(0,0,0,0.35)'
+                          : activeStrokeRenderColour
+                      }
                       style="stroke"
                       strokeWidth={activeStrokeThickness}
                       strokeCap={
