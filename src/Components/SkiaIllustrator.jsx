@@ -2629,7 +2629,7 @@ const SkiaIllustrator = React.forwardRef(
     );
 
     return (
-      <GestureHandlerRootView style={styles.root}>
+      <>
         {active ? (
           <GestureDetector gesture={activeGestures}>
             <View
@@ -2803,7 +2803,7 @@ const SkiaIllustrator = React.forwardRef(
           onCancel={cancelEditor}
           {...(textModalProps ?? {})}
         />
-      </GestureHandlerRootView>
+      </>
     );
   }
 );

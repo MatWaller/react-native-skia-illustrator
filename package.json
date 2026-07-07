@@ -13,8 +13,7 @@
     },
     "./web": {
       "react-native-skia-illustrator-source": "./src/web/index.jsx",
-      "types": "./lib/typescript/src/web/index.d.ts",
-      "default": "./lib/module/web/index.js"
+      "types": "./lib/typescript/src/web/index.d.ts"
     },
     "./package.json": "./package.json"
   },
