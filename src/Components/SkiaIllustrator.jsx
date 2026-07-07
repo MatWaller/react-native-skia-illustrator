@@ -11,7 +11,11 @@ import {
 } from 'react-native';
 
 // Gesture Handler Imports
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler';
 
 // Gesture Imports
 import { createSelectionGestures } from '../Gestures/selectionGestures';
@@ -2631,7 +2635,7 @@ const SkiaIllustrator = React.forwardRef(
     );
 
     return (
-      <>
+      <GestureHandlerRootView style={styles.root}>
         {active ? (
           <GestureDetector gesture={activeGestures}>
             <View
@@ -2805,7 +2809,7 @@ const SkiaIllustrator = React.forwardRef(
           onCancel={cancelEditor}
           {...(textModalProps ?? {})}
         />
-      </>
+      </GestureHandlerRootView>
     );
   }
 );
