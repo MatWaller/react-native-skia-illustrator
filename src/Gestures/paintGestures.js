@@ -2,6 +2,9 @@ import { Gesture } from 'react-native-gesture-handler';
 import { notifyChange } from '@shopify/react-native-skia';
 import { makeMutable, runOnJS } from 'react-native-reanimated';
 
+const MIN_SAMPLE_DISTANCE = 0.75;
+const MAX_ACTIVE_PATH_LENGTH = 24000;
+
 export const createPaintGestures = ({
   currentTool,
   scale,
@@ -48,8 +51,8 @@ export const createPaintGestures = ({
   const paintGesture = Gesture.Pan()
     .enabled(
       currentTool === 'paint' ||
-      currentTool === 'eraser' ||
-      currentTool === 'highlighter'
+        currentTool === 'eraser' ||
+        currentTool === 'highlighter'
     )
     .minDistance(0)
     .maxPointers(1)
@@ -75,6 +78,12 @@ export const createPaintGestures = ({
       'worklet';
       const { x, y } = getCanvasPoint(event.x, event.y);
 
+      const dx = x - lastX.value;
+      const dy = y - lastY.value;
+      if (dx * dx + dy * dy < MIN_SAMPLE_DISTANCE * MIN_SAMPLE_DISTANCE) {
+        return;
+      }
+
       // MW - Re-entry (or a path reset out from under us): start a new
       // subpath here instead of letting quadTo inject an implicit
       // moveTo(0,0) / connect across the off-paper gap.
@@ -98,6 +107,23 @@ export const createPaintGestures = ({
       if (getIsStylusInput(event)) {
         isStylusInput.value = true;
       }
+
+      if (activeStrokePath.value.length > MAX_ACTIVE_PATH_LENGTH) {
+        runOnJS(addPathToAllStrokes)(
+          activeStrokePath.value,
+          activeStrokeColour.value,
+          activeStrokeThickness.value,
+          currentTool === 'eraser',
+          currentTool === 'highlighter',
+          {
+            isChunk: true,
+            isStylus: isStylusInput.value,
+            startPressure: startPressure.value,
+            endPressure: lastPressure.value,
+          }
+        );
+        activeStrokePath.value = `M${midX},${midY}`;
+      }
       notifyChange(activeStrokePath);
     })
     .onEnd(() => {
@@ -108,7 +134,7 @@ export const createPaintGestures = ({
       if (!completedPath) return;
       // MW - Nothing was drawn on the paper (gesture stayed off-canvas):
       // discard instead of committing an empty stroke + history entry.
-      if (!completedPath.trim()) {
+      if (!completedPath.trim() || !completedPath.includes('Q')) {
         activeStrokePath.value = '';
         notifyChange(activeStrokePath);
         return;

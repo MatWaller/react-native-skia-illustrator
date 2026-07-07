@@ -346,10 +346,12 @@ const SkiaIllustrator = React.forwardRef(
     const activeStrokeColour = useSharedValue('black');
 
     const strokeStartCountRef = React.useRef(0);
+    const strokeHistoryPushedRef = React.useRef(false);
     const pendingClearGenRef = React.useRef(null);
 
     const bumpStrokeStart = React.useCallback(() => {
       strokeStartCountRef.current += 1;
+      strokeHistoryPushedRef.current = false;
     }, []);
 
     useLayoutEffect(() => {
@@ -439,8 +441,13 @@ const SkiaIllustrator = React.forwardRef(
             : pathSvg;
         if (!path) return;
 
-        // MW - Snapshot before this stroke is committed.
-        pushHistory(buildSnapshot(shapes.value));
+        // MW - Snapshot before the first segment of this stroke is committed.
+        // Long active strokes are chunked so the UI worklet never carries an
+        // unbounded SVG string; all chunks still undo as one stroke.
+        if (!strokeHistoryPushedRef.current) {
+          pushHistory(buildSnapshot(shapes.value));
+          strokeHistoryPushedRef.current = true;
+        }
 
         // if (pathToShapeEnabled && !isEraser && !isHighlighter) {
         //   const bounds = path.getBounds();
@@ -573,7 +580,9 @@ const SkiaIllustrator = React.forwardRef(
         // The gesture intentionally leaves it painted in the active slot on
         // release; the useLayoutEffect keyed on allStrokesPath clears it in the
         // same commit the committed copy renders, so there is no flash.
-        pendingClearGenRef.current = strokeStartCountRef.current;
+        if (!inputInfo?.isChunk) {
+          pendingClearGenRef.current = strokeStartCountRef.current;
+        }
       },
       [
         pushHistory,
