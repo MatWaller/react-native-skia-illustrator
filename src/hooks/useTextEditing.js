@@ -60,31 +60,10 @@ export const useTextEditing = ({
       setEditorValue(shape.content ?? '');
       setEditorVisible(true);
 
-      // MW - Reflect the selection so the outline tracks the shape while editing.
-      const h = shape.height ?? shape.fontSize ?? 32;
-      selectedShapeId.value = shapeId;
-      selectedShapeStart.value = { x: shape.x, y: shape.y };
-      selectedShapeBounds.value = {
-        x: shape.x,
-        y: shape.y - h,
-        width: shape.width ?? 0,
-        height: h,
-      };
-      selectedShapeRotation.value = shape.rotation ?? 0;
-      notifyChange(selectedShapeId);
-      notifyChange(selectedShapeBounds);
-      notifyChange(selectedShapeRotation);
-      notifySelectedShapeChange(shapeId);
+      // MW - Editing text should not select or deselect it. Selection and
+      // movement are owned by control mode.
     },
-    [
-      shapes,
-      editorOpenShared,
-      selectedShapeId,
-      selectedShapeStart,
-      selectedShapeBounds,
-      selectedShapeRotation,
-      notifySelectedShapeChange,
-    ]
+    [shapes, editorOpenShared]
   );
 
   // MW - Open the editor in CREATE mode at a canvas-space point. Called via
@@ -92,20 +71,6 @@ export const useTextEditing = ({
   // user submits, so cancelling leaves the canvas untouched.
   const addText = React.useCallback(
     (x, y) => {
-      // MW - If a shape is already selected, a tap should just deselect rather
-      // than immediately opening the editor (matches the old behaviour).
-      if (selectedShapeId.value) {
-        selectedShapeId.value = null;
-        selectedShapeBounds.value = null;
-        selectedShapeStart.value = { x: 0, y: 0 };
-        selectedShapeRotation.value = 0;
-        notifyChange(selectedShapeId);
-        notifyChange(selectedShapeBounds);
-        notifyChange(selectedShapeRotation);
-        notifySelectedShapeChange(null);
-        return;
-      }
-
       pendingPointRef.current = { x, y };
       editingTextIdRef.current = null;
       editorOpenShared.value = true;
@@ -113,15 +78,7 @@ export const useTextEditing = ({
       setEditorValue((defaultTextRef && defaultTextRef.current) || '');
       setEditorVisible(true);
     },
-    [
-      editorOpenShared,
-      defaultTextRef,
-      selectedShapeId,
-      selectedShapeBounds,
-      selectedShapeStart,
-      selectedShapeRotation,
-      notifySelectedShapeChange,
-    ]
+    [editorOpenShared, defaultTextRef]
   );
 
   const onEditorChange = React.useCallback((text) => {
@@ -157,13 +114,15 @@ export const useTextEditing = ({
           setShapeList(updatedShapes);
           notifyChange(shapes);
 
-          selectedShapeBounds.value = {
-            x: updatedShape.x,
-            y: updatedShape.y - th,
-            width: tw,
-            height: th,
-          };
-          notifyChange(selectedShapeBounds);
+          if (selectedShapeId.value === updatedShape.id) {
+            selectedShapeBounds.value = {
+              x: updatedShape.x,
+              y: updatedShape.y - th,
+              width: tw,
+              height: th,
+            };
+            notifyChange(selectedShapeBounds);
+          }
         }
       }
       closeEditor();

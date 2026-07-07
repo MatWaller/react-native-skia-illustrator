@@ -299,8 +299,21 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(8);
-    const activeStrokePath = useSharedValue(Skia.Path.Make());
+    const activeStrokePath = useSharedValue(null);
     const activeStrokeColour = useSharedValue('black');
+
+    const activeStrokeRenderColour = useDerivedValue(() => {
+      const colour = activeStrokeColour.value ?? currentColour;
+      if (
+        currentTool === 'highlighter' &&
+        typeof colour === 'string' &&
+        colour.length === 7 &&
+        colour.startsWith('#')
+      ) {
+        return `${colour}80`;
+      }
+      return colour;
+    });
 
     // MW - Font settings
     const activeFontSize = useSharedValue(32);
@@ -466,7 +479,7 @@ const SkiaIllustrator = React.forwardRef(
 
         if (resetTimer.current) clearTimeout(resetTimer.current);
         resetTimer.current = setTimeout(() => {
-          activeStrokePath.value = Skia.Path.Make();
+          activeStrokePath.value = null;
           notifyChange(activeStrokePath);
           resetTimer.current = null;
         }, 200);
@@ -542,50 +555,64 @@ const SkiaIllustrator = React.forwardRef(
       };
     }, []);
 
-    const convertAllStrokesToShape = React.useCallback(() => {
-      if (allStrokesPath.length === 0) {
-        return;
-      }
+    const convertAllStrokesToShape = React.useCallback(
+      (selectCreated = true) => {
+        if (allStrokesPath.length === 0) {
+          return;
+        }
 
-      const pathShape = buildGroupedPathShape(
+        const pathShape = buildGroupedPathShape(
+          allStrokesPath,
+          activeLayerIdRef.current
+        );
+        if (!pathShape) return;
+
+        pushHistory(buildSnapshot(shapes.value));
+        const next = [...shapes.value, pathShape];
+        shapes.value = next;
+        setShapeList(next);
+        setAllStrokesPath([]);
+
+        if (resetTimer.current) {
+          clearTimeout(resetTimer.current);
+          resetTimer.current = null;
+        }
+        activeStrokePath.value = null;
+        notifyChange(activeStrokePath);
+
+        if (selectCreated) {
+          selectedShapeId.value = pathShape.id;
+          selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
+          selectedShapeBounds.value = {
+            x: pathShape.x,
+            y: pathShape.y,
+            width: pathShape.width,
+            height: pathShape.height,
+          };
+          selectedShapeRotation.value = 0;
+
+          notifyChange(selectedShapeId);
+          notifyChange(selectedShapeBounds);
+          notifyChange(selectedShapeRotation);
+          notifySelectedShapeChange(pathShape.id);
+        }
+
+        notifyChange(shapes);
+      },
+      [
         allStrokesPath,
-        activeLayerIdRef.current
-      );
-      if (!pathShape) return;
-
-      pushHistory(buildSnapshot(shapes.value));
-      const next = [...shapes.value, pathShape];
-      shapes.value = next;
-      setShapeList(next);
-      setAllStrokesPath([]);
-
-      selectedShapeId.value = pathShape.id;
-      selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
-      selectedShapeBounds.value = {
-        x: pathShape.x,
-        y: pathShape.y,
-        width: pathShape.width,
-        height: pathShape.height,
-      };
-      selectedShapeRotation.value = 0;
-
-      notifyChange(shapes);
-      notifyChange(selectedShapeId);
-      notifyChange(selectedShapeBounds);
-      notifyChange(selectedShapeRotation);
-      notifySelectedShapeChange(pathShape.id);
-    }, [
-      allStrokesPath,
-      buildGroupedPathShape,
-      buildSnapshot,
-      notifySelectedShapeChange,
-      pushHistory,
-      selectedShapeBounds,
-      selectedShapeId,
-      selectedShapeRotation,
-      selectedShapeStart,
-      shapes,
-    ]);
+        activeStrokePath,
+        buildGroupedPathShape,
+        buildSnapshot,
+        notifySelectedShapeChange,
+        pushHistory,
+        selectedShapeBounds,
+        selectedShapeId,
+        selectedShapeRotation,
+        selectedShapeStart,
+        shapes,
+      ]
+    );
 
     // MW - Cancel a queued active-stroke reset. Called when a new stroke
     // starts so the previous stroke's delayed timer can't wipe the fresh
@@ -1022,7 +1049,6 @@ const SkiaIllustrator = React.forwardRef(
           beginShapeCreation,
           finalizeShapeCreation,
           onSelectedShapeChange: notifySelectedShapeChange,
-          onBeforeShapeMutation,
           scale,
           translateX,
           translateY,
@@ -1032,20 +1058,12 @@ const SkiaIllustrator = React.forwardRef(
           windowHeight,
           canvasWidth: resolvedCanvas.width,
           canvasHeight: resolvedCanvas.height,
-          activeStrokePath,
           activeStrokeColour,
           activeStrokeThickness,
-          addPathToAllStrokes,
-          cancelPendingReset,
           selectedShapeId,
           selectedShapeStart,
           selectedShapeBounds,
           selectedShapeRotation,
-          draggingShape,
-          dragLastTransX,
-          dragLastTransY,
-          edgePanX,
-          edgePanY,
           lineAnchor,
           pendingLinePreview,
           activeIconAspect,
@@ -1055,7 +1073,6 @@ const SkiaIllustrator = React.forwardRef(
         addShape,
         beginShapeCreation,
         finalizeShapeCreation,
-        onBeforeShapeMutation,
         currentTool,
         shapeToolType,
         scale,
@@ -1067,20 +1084,12 @@ const SkiaIllustrator = React.forwardRef(
         windowHeight,
         resolvedCanvas.width,
         resolvedCanvas.height,
-        activeStrokePath,
         activeStrokeColour,
         activeStrokeThickness,
-        addPathToAllStrokes,
-        cancelPendingReset,
         selectedShapeId,
         selectedShapeStart,
         selectedShapeBounds,
         selectedShapeRotation,
-        draggingShape,
-        dragLastTransX,
-        dragLastTransY,
-        edgePanX,
-        edgePanY,
         notifySelectedShapeChange,
         lineAnchor,
         pendingLinePreview,
@@ -1150,27 +1159,10 @@ const SkiaIllustrator = React.forwardRef(
           scale,
           translateX,
           translateY,
-          selectedShapeId,
-          selectedShapeStart,
-          selectedShapeBounds,
-          selectedShapeRotation,
           shapes,
-          onSelectedShapeChange: notifySelectedShapeChange,
           addText,
         }),
-      [
-        currentTool,
-        scale,
-        translateX,
-        translateY,
-        selectedShapeId,
-        selectedShapeStart,
-        selectedShapeBounds,
-        selectedShapeRotation,
-        shapes,
-        notifySelectedShapeChange,
-        addText,
-      ]
+      [currentTool, scale, translateX, translateY, shapes, addText]
     );
 
     // MW - Active Gestures based on current tool.
@@ -1205,26 +1197,14 @@ const SkiaIllustrator = React.forwardRef(
           return paintGesture;
         case 'shape':
         case 'icon':
-          // MW - Drag on empty canvas creates + sizes a shape in real time;
-          // drag on an existing shape moves it (handled inside
-          // dragPlaceShapeGesture). Tap places a default-size shape, selects an
-          // existing one, or drops/finishes a two-tap line. Pinch/rotate keep
-          // working on the selected shape.
+          // MW - Shape/icon mode only places new shapes. Existing-shape
+          // selection and movement are handled by control mode.
           return Gesture.Simultaneous(
             dragPlaceShapeGesture,
-            tapPlaceShapeGesture,
-            rotateSelectionGesture,
-            pinchResizeGesture,
-            doubleTapTextGesture
+            tapPlaceShapeGesture
           );
         case 'text':
-          return Gesture.Simultaneous(
-            placeTextGesture,
-            panSelectionGesture,
-            rotateSelectionGesture,
-            pinchResizeGesture,
-            doubleTapTextGesture
-          );
+          return Gesture.Simultaneous(placeTextGesture, doubleTapTextGesture);
         default:
           return Gesture.Exclusive();
       }
@@ -1900,7 +1880,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeBounds.value = null;
         selectedShapeRotation.value = 0;
         notifySelectedShapeChange(null);
-        activeStrokePath.value = Skia.Path.Make();
+        activeStrokePath.value = null;
         notifyChange(activeStrokePath);
       },
       [
@@ -2161,12 +2141,12 @@ const SkiaIllustrator = React.forwardRef(
         clearCanvas,
         setCurrentTool: (tool) => {
           if (
-            currentTool === 'paint' &&
-            tool !== 'paint' &&
+            ((currentTool === 'paint' && tool !== 'paint') ||
+              (currentTool === 'highlighter' && tool !== 'highlighter')) &&
             tool !== 'eraser'
           ) {
             // MW - If leaving the paint tool collapse all current paths into a single committed stroke that they can move and resize.
-            convertAllStrokesToShape();
+            convertAllStrokesToShape(tool === 'control');
           }
           setCurrentTool(tool);
         },
@@ -2470,7 +2450,7 @@ const SkiaIllustrator = React.forwardRef(
                           {activeStrokePath.value != null && (
                             <Path
                               path={activeStrokePath}
-                              color={currentColour}
+                              color={activeStrokeRenderColour}
                               style="stroke"
                               strokeWidth={activeStrokeThickness}
                               strokeCap={

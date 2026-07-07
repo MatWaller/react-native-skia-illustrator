@@ -18,16 +18,10 @@ export const createShapeGestures = ({
   selectedShapeStart,
   selectedShapeBounds,
   selectedShapeRotation,
-  draggingShape,
-  dragLastTransX,
-  dragLastTransY,
-  edgePanX,
-  edgePanY,
   activeStrokeColour,
   activeStrokeThickness,
   shapes,
   onSelectedShapeChange,
-  onBeforeShapeMutation = null,
   addShape,
   beginShapeCreation,
   finalizeShapeCreation,
@@ -63,111 +57,6 @@ export const createShapeGestures = ({
         (windowHeight ?? 0) - PAN_PADDING
       ),
     };
-  };
-
-  // MW - Edge auto-pan velocity from the finger's screen position.
-  const EDGE_ZONE = 56;
-  const EDGE_MAX_SPEED = 14;
-  const updateEdgePan = (ax, ay) => {
-    'worklet';
-    let evx = 0;
-    let evy = 0;
-    if (ax < EDGE_ZONE) {
-      evx = Math.min((EDGE_ZONE - ax) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
-    } else if (ax > (windowWidth ?? 0) - EDGE_ZONE) {
-      evx =
-        -Math.min((ax - ((windowWidth ?? 0) - EDGE_ZONE)) / EDGE_ZONE, 1) *
-        EDGE_MAX_SPEED;
-    }
-    if (ay < EDGE_ZONE) {
-      evy = Math.min((EDGE_ZONE - ay) / EDGE_ZONE, 1) * EDGE_MAX_SPEED;
-    } else if (ay > (windowHeight ?? 0) - EDGE_ZONE) {
-      evy =
-        -Math.min((ay - ((windowHeight ?? 0) - EDGE_ZONE)) / EDGE_ZONE, 1) *
-        EDGE_MAX_SPEED;
-    }
-    edgePanX.value = evx;
-    edgePanY.value = evy;
-  };
-
-  const hitTestCircle = (shape, px, py) => {
-    'worklet';
-    const dx = px - shape.x;
-    const dy = py - shape.y;
-    return dx * dx + dy * dy <= shape.radius * shape.radius;
-  };
-
-  const hitTestRect = (shape, px, py) => {
-    'worklet';
-    const rotationInRadians = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const centerX = shape.x + shape.width / 2;
-    const centerY = shape.y + shape.height / 2;
-    const tx = px - centerX;
-    const ty = py - centerY;
-    const cosA = Math.cos(-rotationInRadians);
-    const sinA = Math.sin(-rotationInRadians);
-    const rx = tx * cosA - ty * sinA + centerX;
-    const ry = tx * sinA + ty * cosA + centerY;
-    return (
-      rx >= shape.x &&
-      rx <= shape.x + shape.width &&
-      ry >= shape.y &&
-      ry <= shape.y + shape.height
-    );
-  };
-
-  const hitTestLine = (shape, px, py) => {
-    'worklet';
-    const padding = 10;
-    const w = shape.width ?? 0;
-    const h = shape.height ?? 0;
-    // MW - Lines can be drawn in any direction (signed width/height), so
-    // normalise to a min/max box before hit-testing.
-    const minX = Math.min(shape.x, shape.x + w);
-    const maxX = Math.max(shape.x, shape.x + w);
-    const minY = Math.min(shape.y, shape.y + h);
-    const maxY = Math.max(shape.y, shape.y + h);
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    const rotationInRadians = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const tx = px - centerX;
-    const ty = py - centerY;
-    const cosA = Math.cos(-rotationInRadians);
-    const sinA = Math.sin(-rotationInRadians);
-    const rx = tx * cosA - ty * sinA + centerX;
-    const ry = tx * sinA + ty * cosA + centerY;
-    return (
-      rx >= minX - padding &&
-      rx <= maxX + padding &&
-      ry >= minY - padding &&
-      ry <= maxY + padding
-    );
-  };
-
-  const hitTestText = (shape, px, py) => {
-    'worklet';
-    const w = shape.width ?? 0;
-    const h = shape.height ?? shape.fontSize ?? 32;
-    const rotationInRadians = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const centerX = shape.x + w / 2;
-    const centerY = shape.y - h / 2;
-    const tx = px - centerX;
-    const ty = py - centerY;
-    const cosA = Math.cos(-rotationInRadians);
-    const sinA = Math.sin(-rotationInRadians);
-    const rx = tx * cosA - ty * sinA + centerX;
-    const ry = tx * sinA + ty * cosA + centerY;
-    return (
-      rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y
-    );
-  };
-
-  const hitTestShape = (shape, px, py) => {
-    'worklet';
-    if (shape.type === 'circle') return hitTestCircle(shape, px, py);
-    if (shape.type === 'text') return hitTestText(shape, px, py);
-    if (shape.type === 'line') return hitTestLine(shape, px, py);
-    return hitTestRect(shape, px, py);
   };
 
   const getShapeBounds = (shape) => {
@@ -251,24 +140,6 @@ export const createShapeGestures = ({
           runOnJS(addShape)(lineShape);
         }
         return;
-      }
-
-      for (let i = currentShapes.length - 1; i >= 0; i--) {
-        const shape = currentShapes[i];
-        if (hitTestShape(shape, x, y)) {
-          selectedShapeId.value = shape.id;
-          selectedShapeStart.value = { x: shape.x, y: shape.y };
-          selectedShapeBounds.value = getShapeBounds(shape);
-          selectedShapeRotation.value =
-            shape.type === 'circle' ? 0 : shape.rotation || 0;
-          notifyChange(selectedShapeId);
-          notifyChange(selectedShapeBounds);
-          notifyChange(selectedShapeRotation);
-          if (onSelectedShapeChange) {
-            runOnJS(onSelectedShapeChange)(shape.id);
-          }
-          return;
-        }
       }
 
       // MW - Line tool, no anchor yet: drop the first point and wait for the
@@ -460,11 +331,11 @@ export const createShapeGestures = ({
       }
     });
 
-  // MW - Drag-to-place: press on empty canvas and drag to size a new shape in
-  // real time (anchored at the press point). Pressing on an existing shape
-  // moves it instead. Pinch/rotate still work via the simultaneous gestures.
+  // MW - Drag-to-place: press on the canvas and drag to size a new shape in
+  // real time (anchored at the press point). Existing-shape selection and
+  // movement are handled by control mode.
   const createStart = makeMutable({ x: 0, y: 0 });
-  const createMode = makeMutable('none'); // 'none' | 'move' | 'create' | 'pan'
+  const createMode = makeMutable('none'); // 'none' | 'create' | 'pan'
   const creatingShapeId = makeMutable(null);
 
   const dragPlaceShapeGesture = Gesture.Pan()
@@ -474,33 +345,7 @@ export const createShapeGestures = ({
     .onBegin((event) => {
       'worklet';
       const { x, y } = getCanvasPoint(event.x, event.y);
-      const currentShapes = shapes.value;
-      let hit = null;
-      for (let i = currentShapes.length - 1; i >= 0; i--) {
-        if (hitTestShape(currentShapes[i], x, y)) {
-          hit = currentShapes[i];
-          break;
-        }
-      }
-      if (hit) {
-        // Touching an existing shape — set up a move.
-        createMode.value = 'move';
-        creatingShapeId.value = null;
-        draggingShape.value = true;
-        edgePanX.value = 0;
-        edgePanY.value = 0;
-        selectedShapeId.value = hit.id;
-        selectedShapeStart.value = { x: hit.x, y: hit.y };
-        selectedShapeBounds.value = getShapeBounds(hit);
-        selectedShapeRotation.value =
-          hit.type === 'circle' ? 0 : hit.rotation || 0;
-        notifyChange(selectedShapeId);
-        notifyChange(selectedShapeBounds);
-        notifyChange(selectedShapeRotation);
-        if (onSelectedShapeChange) {
-          runOnJS(onSelectedShapeChange)(hit.id);
-        }
-      } else if (!shapeToolType) {
+      if (!shapeToolType) {
         // MW - No shape/icon picked in the toolbar: a drag on empty canvas pans
         // the viewport instead of drag-placing a bounding box.
         createMode.value = 'pan';
@@ -517,12 +362,6 @@ export const createShapeGestures = ({
     })
     .onStart(() => {
       'worklet';
-      if (createMode.value === 'move') {
-        if (selectedShapeId.value && onBeforeShapeMutation) {
-          runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
-        }
-        return;
-      }
       if (createMode.value === 'pan') return;
       if (createMode.value !== 'create') return;
 
@@ -624,30 +463,6 @@ export const createShapeGestures = ({
         translateY.value = clamped.y;
         return;
       }
-      if (createMode.value === 'move') {
-        if (!selectedShapeId.value) return;
-        dragLastTransX.value = event.translationX;
-        dragLastTransY.value = event.translationY;
-        updateEdgePan(event.absoluteX, event.absoluteY);
-        const newX =
-          selectedShapeStart.value.x + event.translationX / (scale.value || 1);
-        const newY =
-          selectedShapeStart.value.y + event.translationY / (scale.value || 1);
-        const cs = shapes.value;
-        for (let i = 0; i < cs.length; i++) {
-          if (cs[i].id === selectedShapeId.value) {
-            cs[i].x = newX;
-            cs[i].y = newY;
-            selectedShapeBounds.value = getShapeBounds(cs[i]);
-            break;
-          }
-        }
-        shapes.value = [...cs];
-        notifyChange(shapes);
-        notifyChange(selectedShapeBounds);
-        return;
-      }
-
       if (createMode.value !== 'create' || creatingShapeId.value == null)
         return;
 
@@ -709,9 +524,6 @@ export const createShapeGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      draggingShape.value = false;
-      edgePanX.value = 0;
-      edgePanY.value = 0;
       if (createMode.value === 'pan') {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;

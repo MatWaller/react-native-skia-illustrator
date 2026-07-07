@@ -1,5 +1,4 @@
 import { Gesture } from 'react-native-gesture-handler';
-import { notifyChange } from '@shopify/react-native-skia';
 import { runOnJS } from 'react-native-reanimated';
 
 export const createTextGestures = ({
@@ -7,12 +6,7 @@ export const createTextGestures = ({
   scale,
   translateX,
   translateY,
-  selectedShapeId,
-  selectedShapeStart,
-  selectedShapeBounds,
-  selectedShapeRotation,
   shapes,
-  onSelectedShapeChange,
   addText,
 }) => {
   const getCanvasPoint = (x, y) => {
@@ -74,24 +68,9 @@ export const createTextGestures = ({
           continue;
         }
 
-        const textHeight = shape.height ?? shape.fontSize ?? 32;
-        selectedShapeId.value = shape.id;
-        selectedShapeStart.value = { x: shape.x, y: shape.y };
-        selectedShapeBounds.value = {
-          x: shape.x,
-          y: shape.y - textHeight,
-          width: shape.width ?? 0,
-          height: textHeight,
-        };
-
-        selectedShapeRotation.value = shape.rotation || 0;
-        notifyChange(selectedShapeId);
-        notifyChange(selectedShapeBounds);
-        notifyChange(selectedShapeRotation);
-
-        if (onSelectedShapeChange) {
-          runOnJS(onSelectedShapeChange)(shape.id);
-        }
+        // MW - Text selection/movement belongs to control mode. A single tap
+        // on existing text should not select or deselect anything here; double
+        // tap editing is handled by useTextEditing's double-tap gesture.
         return;
       }
 
