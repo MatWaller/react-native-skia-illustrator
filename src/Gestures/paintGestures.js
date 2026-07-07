@@ -134,7 +134,7 @@ export const createPaintGestures = ({
         return;
       }
       runOnJS(addPathToAllStrokes)(
-        completedPath,
+        completedPath.toSVGString(),
         activeStrokeColour.value,
         activeStrokeThickness.value,
         isEraser,

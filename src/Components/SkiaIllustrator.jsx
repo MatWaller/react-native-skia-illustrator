@@ -11,11 +11,7 @@ import {
 } from 'react-native';
 
 // Gesture Handler Imports
-import {
-  Gesture,
-  GestureDetector,
-  GestureHandlerRootView,
-} from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 // Gesture Imports
 import { createSelectionGestures } from '../Gestures/selectionGestures';
@@ -426,13 +422,19 @@ const SkiaIllustrator = React.forwardRef(
     // so a delayed JS timer cannot overwrite a fresh in-progress stroke.
     const addPathToAllStrokes = React.useCallback(
       (
-        path,
+        pathSvg,
         colour,
         thickness = 1,
         isEraser = false,
         isHighlighter = false,
         inputInfo = null
       ) => {
+        const path =
+          typeof pathSvg === 'string'
+            ? Skia.Path.MakeFromSVGString(pathSvg)
+            : pathSvg;
+        if (!path) return;
+
         // MW - Snapshot before this stroke is committed.
         pushHistory(buildSnapshot(shapes.value));
 
