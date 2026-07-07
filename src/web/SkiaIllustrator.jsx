@@ -705,11 +705,23 @@ const SkiaIllustratorWeb = React.forwardRef(
     }, []);
 
     React.useEffect(() => {
-      setTransform((prev) => ({
-        ...prev,
-        x: (viewportSize.width - resolvedCanvas.width * prev.scale) / 2,
-        y: (viewportSize.height - resolvedCanvas.height * prev.scale) / 2,
-      }));
+      const FIT_MARGIN = 0.9;
+      const fitScale =
+        resolvedCanvas.width > 0 && resolvedCanvas.height > 0
+          ? clamp(
+              Math.min(
+                viewportSize.width / resolvedCanvas.width,
+                viewportSize.height / resolvedCanvas.height
+              ) * FIT_MARGIN,
+              0.1,
+              12
+            )
+          : 1;
+      setTransform({
+        scale: fitScale,
+        x: (viewportSize.width - resolvedCanvas.width * fitScale) / 2,
+        y: (viewportSize.height - resolvedCanvas.height * fitScale) / 2,
+      });
     }, [
       resolvedCanvas.width,
       resolvedCanvas.height,

@@ -23,14 +23,6 @@ export const useUndoRedo = ({
   const redoStack = React.useRef([]);
   const [historySize, setHistorySize] = React.useState({ undo: 0, redo: 0 });
 
-  // MW - Capture the current canvas state as a snapshot.
-  // Committed stroke entries are IMMUTABLE after commit (the strokes array is
-  // always replaced, never mutated in place), so snapshots hold references to
-  // the existing stroke objects instead of serialising every Skia path to an
-  // SVG string. The old per-push `path.toSVGString()` of ALL strokes made each
-  // snapshot cost O(total ink) — with up to MAX_HISTORY snapshots retained,
-  // long sessions ballooned the Hermes heap until the OS hard-killed the app
-  // mid-gesture (history is pushed on every touch-down on a shape).
   const buildSnapshot = React.useCallback(
     (shapesArray) => ({
       shapes: shapesArray.map((s) => ({ ...s })),

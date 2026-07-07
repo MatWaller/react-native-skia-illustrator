@@ -96,12 +96,29 @@ const SkiaIllustrator = React.forwardRef(
       height: canvasHeight,
     });
 
-    const initialX = (windowWidth - resolvedCanvas.width) / 2;
-    const initialY = (windowHeight - resolvedCanvas.height) / 2;
+
+    const FIT_MARGIN = 0.9;
+    const FIT_MIN_SCALE = 0.2;
+    const FIT_MAX_SCALE = 5;
+    const getFitScale = React.useCallback(
+      (w, h) => {
+        if (!w || !h) return 1;
+        const fit = Math.min(windowWidth / w, windowHeight / h) * FIT_MARGIN;
+        return Math.min(Math.max(fit, FIT_MIN_SCALE), FIT_MAX_SCALE);
+      },
+      [windowWidth, windowHeight]
+    );
+
+    const initialScale = getFitScale(
+      resolvedCanvas.width,
+      resolvedCanvas.height
+    );
+    const initialX = (windowWidth - resolvedCanvas.width * initialScale) / 2;
+    const initialY = (windowHeight - resolvedCanvas.height * initialScale) / 2;
 
     // MW - View port states.
-    const scale = useSharedValue(1);
-    const savedScale = useSharedValue(1);
+    const scale = useSharedValue(initialScale);
+    const savedScale = useSharedValue(initialScale);
     const translateX = useSharedValue(initialX);
     const translateY = useSharedValue(initialY);
     const savedTranslateX = useSharedValue(initialX);
@@ -629,9 +646,14 @@ const SkiaIllustrator = React.forwardRef(
 
       setResolvedCanvas({ width: targetWidth, height: targetHeight });
 
-      const currentScale = scale.value || 1;
-      const newX = (windowWidth - targetWidth * currentScale) / 2;
-      const newY = (windowHeight - targetHeight * currentScale) / 2;
+      // MW - Fit the (possibly image-sized) paper to the window so large
+      // images open fully visible and small papers open filling the screen,
+      // then centre it at that scale.
+      const fitScale = getFitScale(targetWidth, targetHeight);
+      const newX = (windowWidth - targetWidth * fitScale) / 2;
+      const newY = (windowHeight - targetHeight * fitScale) / 2;
+      scale.value = fitScale;
+      savedScale.value = fitScale;
       translateX.value = newX;
       translateY.value = newY;
       savedTranslateX.value = newX;
@@ -642,7 +664,9 @@ const SkiaIllustrator = React.forwardRef(
       canvasHeight,
       windowHeight,
       windowWidth,
+      getFitScale,
       scale,
+      savedScale,
       translateX,
       translateY,
       savedTranslateX,
