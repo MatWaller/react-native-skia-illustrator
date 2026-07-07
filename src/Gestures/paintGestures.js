@@ -1,5 +1,5 @@
 import { Gesture } from 'react-native-gesture-handler';
-import { Skia, notifyChange } from '@shopify/react-native-skia';
+import { notifyChange } from '@shopify/react-native-skia';
 import { makeMutable, runOnJS } from 'react-native-reanimated';
 
 export const createPaintGestures = ({
@@ -26,13 +26,6 @@ export const createPaintGestures = ({
   // across the region travelled outside the canvas.
   const wasOnCanvas = makeMutable(false);
 
-  const isOnCanvas = (x, y) => {
-    'worklet';
-    return (
-      x >= 0 && y >= 0 && x <= (canvasWidth ?? 0) && y <= (canvasHeight ?? 0)
-    );
-  };
-
   const getPressure = (event) => {
     'worklet';
     const pressure = event.pressure ?? event.stylusData?.pressure ?? 1;
@@ -55,8 +48,8 @@ export const createPaintGestures = ({
   const paintGesture = Gesture.Pan()
     .enabled(
       currentTool === 'paint' ||
-        currentTool === 'eraser' ||
-        currentTool === 'highlighter'
+      currentTool === 'eraser' ||
+      currentTool === 'highlighter'
     )
     .minDistance(0)
     .maxPointers(1)
@@ -66,42 +59,29 @@ export const createPaintGestures = ({
         runOnJS(onStrokeStart)();
       }
       const pt = getCanvasPoint(event.x, event.y);
-      // MW - Strokes only exist on the paper. Starting off-paper creates an
-      // empty path; the first on-paper sample in onUpdate will moveTo there.
-      const path = Skia.Path.Make();
-      if (isOnCanvas(pt.x, pt.y)) {
-        path.moveTo(pt.x, pt.y);
-        lastX.value = pt.x;
-        lastY.value = pt.y;
-        wasOnCanvas.value = true;
-      } else {
-        wasOnCanvas.value = false;
-      }
-      activeStrokePath.value = path;
+      // MW - Strokes only exist on the paper. Keep the active path as a plain
+      // SVG string so Worklets never has to retain or serialize a native Skia
+      // Path host object during modal/gesture teardown.
+      activeStrokePath.value = `M${pt.x},${pt.y}`;
+      lastX.value = pt.x;
+      lastY.value = pt.y;
+      wasOnCanvas.value = true;
+
       startPressure.value = getPressure(event);
       lastPressure.value = startPressure.value;
       isStylusInput.value = getIsStylusInput(event);
     })
     .onUpdate((event) => {
       'worklet';
-      const path = activeStrokePath.value;
-      if (!path) return;
-
       const { x, y } = getCanvasPoint(event.x, event.y);
-
-      // MW - Ignore samples outside the paper entirely; remember we left so
-      // the next on-paper sample starts a fresh subpath instead of drawing a
-      // line across the gap.
-      if (!isOnCanvas(x, y)) {
-        wasOnCanvas.value = false;
-        return;
-      }
 
       // MW - Re-entry (or a path reset out from under us): start a new
       // subpath here instead of letting quadTo inject an implicit
       // moveTo(0,0) / connect across the off-paper gap.
-      if (!wasOnCanvas.value || path.isEmpty()) {
-        path.moveTo(x, y);
+      if (!wasOnCanvas.value || !activeStrokePath.value) {
+        activeStrokePath.value = activeStrokePath.value
+          ? `${activeStrokePath.value} M${x},${y}`
+          : `M${x},${y}`;
         lastX.value = x;
         lastY.value = y;
         wasOnCanvas.value = true;
@@ -111,7 +91,7 @@ export const createPaintGestures = ({
 
       const midX = (lastX.value + x) / 2;
       const midY = (lastY.value + y) / 2;
-      path.quadTo(lastX.value, lastY.value, midX, midY);
+      activeStrokePath.value = `${activeStrokePath.value} Q${lastX.value},${lastY.value} ${midX},${midY}`;
       lastX.value = x;
       lastY.value = y;
       lastPressure.value = getPressure(event);
@@ -128,13 +108,13 @@ export const createPaintGestures = ({
       if (!completedPath) return;
       // MW - Nothing was drawn on the paper (gesture stayed off-canvas):
       // discard instead of committing an empty stroke + history entry.
-      if (completedPath.isEmpty()) {
-        activeStrokePath.value = Skia.Path.Make();
+      if (!completedPath.trim()) {
+        activeStrokePath.value = '';
         notifyChange(activeStrokePath);
         return;
       }
       runOnJS(addPathToAllStrokes)(
-        completedPath.toSVGString(),
+        completedPath,
         activeStrokeColour.value,
         activeStrokeThickness.value,
         isEraser,

@@ -342,7 +342,7 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(8);
-    const activeStrokePath = useSharedValue(Skia.Path.Make());
+    const activeStrokePath = useSharedValue('');
     const activeStrokeColour = useSharedValue('black');
 
     const strokeStartCountRef = React.useRef(0);
@@ -361,7 +361,7 @@ const SkiaIllustrator = React.forwardRef(
         // MW - A newer stroke has started since this commit; its onStart already
         // installed a fresh active path, so leave it alone.
         if (strokeStartCountRef.current !== gen) return;
-        activeStrokePath.value = Skia.Path.Make();
+        activeStrokePath.value = '';
         notifyChange(activeStrokePath);
       });
       return () => cancelAnimationFrame(raf);
@@ -662,7 +662,7 @@ const SkiaIllustrator = React.forwardRef(
         shapes.value = next;
         setShapeList(next);
         setAllStrokesPath([]);
-        activeStrokePath.value = Skia.Path.Make();
+        activeStrokePath.value = '';
         notifyChange(activeStrokePath);
 
         if (selectCreated) {
@@ -2093,7 +2093,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeBounds.value = null;
         selectedShapeRotation.value = 0;
         notifySelectedShapeChange(null);
-        activeStrokePath.value = Skia.Path.Make();
+        activeStrokePath.value = '';
         notifyChange(activeStrokePath);
       },
       [
@@ -2378,7 +2378,7 @@ const SkiaIllustrator = React.forwardRef(
       edgePanY.value = 0;
       lineAnchor.value = null;
       pendingLinePreview.value = { active: false, x: 0, y: 0 };
-      activeStrokePath.value = Skia.Path.Make();
+      activeStrokePath.value = '';
       cancelEditor();
       Keyboard.dismiss();
     }, [
