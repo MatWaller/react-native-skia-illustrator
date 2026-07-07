@@ -96,7 +96,6 @@ const SkiaIllustrator = React.forwardRef(
       height: canvasHeight,
     });
 
-
     const FIT_MARGIN = 0.9;
     const FIT_MIN_SCALE = 0.2;
     const FIT_MAX_SCALE = 5;
@@ -158,7 +157,10 @@ const SkiaIllustrator = React.forwardRef(
     // override it through the setText() imperative method.
     const defaultTextContentRef = React.useRef('');
 
-    const [shapeList, setShapeList] = useState(() => shapes.value);
+    // MW - `shapes` is initialised to an empty shared value, so seed the React
+    // mirror with [] directly. Reading `shapes.value` here would read a
+    // Reanimated shared value during render (which logs a warning).
+    const [shapeList, setShapeList] = useState([]);
     // MW - null = no shape/icon picked in the toolbar yet. While null, a drag in
     // shape mode pans the viewport instead of drag-placing a shape. setShape()/
     // setIcon() set this to a concrete type, which re-enables drag-to-place.
@@ -318,6 +320,29 @@ const SkiaIllustrator = React.forwardRef(
     const activeStrokeThickness = useSharedValue(8);
     const activeStrokePath = useSharedValue(Skia.Path.Make());
     const activeStrokeColour = useSharedValue('black');
+
+    // MW - Holds the just-committed stroke path that still needs to be cleared
+    // from the live active-stroke slot. The clear is deferred until AFTER the
+    // committed stroke has been added to allStrokesPath and rendered, so there
+    // is never a frame where neither the active nor the committed path is
+    // painted (which showed up as a flash when a paint/highlighter stroke was
+    // released). See the useLayoutEffect below.
+    const activeStrokeResetRef = React.useRef(null);
+
+    // MW - Once the committed stroke is in the Skia tree (allStrokesPath just
+    // changed), atomically clear the active-stroke path in the same commit so
+    // the swap is seamless. Guard with a reference check: if a brand-new stroke
+    // has already replaced the active path (fast successive strokes), leave it
+    // alone so we never wipe an in-progress stroke.
+    useLayoutEffect(() => {
+      const committed = activeStrokeResetRef.current;
+      if (!committed) return;
+      activeStrokeResetRef.current = null;
+      if (activeStrokePath.value === committed) {
+        activeStrokePath.value = Skia.Path.Make();
+        notifyChange(activeStrokePath);
+      }
+    }, [allStrokesPath, activeStrokePath]);
 
     const activeStrokeRenderColour = useMemo(() => {
       if (
@@ -494,6 +519,11 @@ const SkiaIllustrator = React.forwardRef(
               : undefined,
           },
         ]);
+        // MW - Mark this exact path for a deferred clear from the active slot.
+        // The gesture intentionally leaves it painted in the active slot on
+        // release; the useLayoutEffect keyed on allStrokesPath clears it in the
+        // same commit the committed copy renders, so there is no flash.
+        activeStrokeResetRef.current = path;
       },
       [
         pushHistory,
@@ -763,6 +793,8 @@ const SkiaIllustrator = React.forwardRef(
           scale,
           translateX,
           translateY,
+          canvasWidth: resolvedCanvas.width,
+          canvasHeight: resolvedCanvas.height,
           activeStrokePath,
           activeStrokeColour,
           activeStrokeThickness,
@@ -773,6 +805,8 @@ const SkiaIllustrator = React.forwardRef(
         scale,
         translateX,
         translateY,
+        resolvedCanvas.width,
+        resolvedCanvas.height,
         activeStrokePath,
         activeStrokeColour,
         activeStrokeThickness,
@@ -2579,27 +2613,26 @@ const SkiaIllustrator = React.forwardRef(
                               />
                             )
                           )}
-                          {activeStrokePath.value != null && (
-                            <Path
-                              path={activeStrokePath}
-                              color={activeStrokeRenderColour}
-                              style="stroke"
-                              strokeWidth={activeStrokeThickness}
-                              strokeCap={
-                                currentTool === 'highlighter'
-                                  ? 'square'
-                                  : 'round'
-                              }
-                              strokeJoin={
-                                currentTool === 'highlighter'
-                                  ? 'miter'
-                                  : 'round'
-                              }
-                              blendMode={
-                                currentTool === 'eraser' ? 'clear' : 'srcOver'
-                              }
-                            />
-                          )}
+                          {/* MW - Always mounted. `activeStrokePath` is always
+                              a valid (possibly empty) Skia path, so there is no
+                              need to read `.value` during render (which logs a
+                              Reanimated warning). The Path node subscribes to
+                              the shared value and updates on the UI thread. */}
+                          <Path
+                            path={activeStrokePath}
+                            color={activeStrokeRenderColour}
+                            style="stroke"
+                            strokeWidth={activeStrokeThickness}
+                            strokeCap={
+                              currentTool === 'highlighter' ? 'square' : 'round'
+                            }
+                            strokeJoin={
+                              currentTool === 'highlighter' ? 'miter' : 'round'
+                            }
+                            blendMode={
+                              currentTool === 'eraser' ? 'clear' : 'srcOver'
+                            }
+                          />
                         </Group>
                       );
                     }

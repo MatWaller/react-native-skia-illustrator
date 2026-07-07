@@ -8,6 +8,8 @@ export const createPaintGestures = ({
   shapes,
   translateX,
   translateY,
+  canvasWidth,
+  canvasHeight,
   activeStrokePath,
   activeStrokeColour,
   activeStrokeThickness,
@@ -18,6 +20,17 @@ export const createPaintGestures = ({
   const startPressure = makeMutable(1);
   const lastPressure = makeMutable(1);
   const isStylusInput = makeMutable(false);
+  // MW - Whether the previous sample landed on the paper. Used to start a new
+  // subpath (moveTo) when the finger re-enters, so no connecting line is drawn
+  // across the region travelled outside the canvas.
+  const wasOnCanvas = makeMutable(false);
+
+  const isOnCanvas = (x, y) => {
+    'worklet';
+    return (
+      x >= 0 && y >= 0 && x <= (canvasWidth ?? 0) && y <= (canvasHeight ?? 0)
+    );
+  };
 
   const getPressure = (event) => {
     'worklet';
@@ -49,11 +62,18 @@ export const createPaintGestures = ({
     .onStart((event) => {
       'worklet';
       const pt = getCanvasPoint(event.x, event.y);
+      // MW - Strokes only exist on the paper. Starting off-paper creates an
+      // empty path; the first on-paper sample in onUpdate will moveTo there.
       const path = Skia.Path.Make();
-      path.moveTo(pt.x, pt.y);
+      if (isOnCanvas(pt.x, pt.y)) {
+        path.moveTo(pt.x, pt.y);
+        lastX.value = pt.x;
+        lastY.value = pt.y;
+        wasOnCanvas.value = true;
+      } else {
+        wasOnCanvas.value = false;
+      }
       activeStrokePath.value = path;
-      lastX.value = pt.x;
-      lastY.value = pt.y;
       startPressure.value = getPressure(event);
       lastPressure.value = startPressure.value;
       isStylusInput.value = getIsStylusInput(event);
@@ -65,13 +85,22 @@ export const createPaintGestures = ({
 
       const { x, y } = getCanvasPoint(event.x, event.y);
 
-      // MW - Defensive guard: if the path was reset out from under us
-      // (no current point), restart it here instead of letting quadTo
-      // inject an implicit moveTo(0,0) and draw a line from the corner.
-      if (path.isEmpty()) {
+      // MW - Ignore samples outside the paper entirely; remember we left so
+      // the next on-paper sample starts a fresh subpath instead of drawing a
+      // line across the gap.
+      if (!isOnCanvas(x, y)) {
+        wasOnCanvas.value = false;
+        return;
+      }
+
+      // MW - Re-entry (or a path reset out from under us): start a new
+      // subpath here instead of letting quadTo inject an implicit
+      // moveTo(0,0) / connect across the off-paper gap.
+      if (!wasOnCanvas.value || path.isEmpty()) {
         path.moveTo(x, y);
         lastX.value = x;
         lastY.value = y;
+        wasOnCanvas.value = true;
         notifyChange(activeStrokePath);
         return;
       }
@@ -93,6 +122,13 @@ export const createPaintGestures = ({
       let isHighlighter = currentTool === 'highlighter';
       const completedPath = activeStrokePath.value;
       if (!completedPath) return;
+      // MW - Nothing was drawn on the paper (gesture stayed off-canvas):
+      // discard instead of committing an empty stroke + history entry.
+      if (completedPath.isEmpty()) {
+        activeStrokePath.value = Skia.Path.Make();
+        notifyChange(activeStrokePath);
+        return;
+      }
       runOnJS(addPathToAllStrokes)(
         completedPath,
         activeStrokeColour.value,
@@ -105,8 +141,12 @@ export const createPaintGestures = ({
           endPressure: lastPressure.value,
         }
       );
-      activeStrokePath.value = Skia.Path.Make();
-      notifyChange(activeStrokePath);
+      // MW - Intentionally do NOT reset activeStrokePath here. The finished
+      // stroke stays painted in the active slot until SkiaIllustrator has
+      // committed it into allStrokesPath and rendered it, at which point it
+      // clears the active slot in the same commit. Resetting here caused a
+      // frame where neither the active nor the committed path was painted,
+      // which showed up as a flash on release (paint + highlighter).
     });
 
   return { paintGesture };

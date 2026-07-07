@@ -1,7 +1,7 @@
 import React from 'react';
 import { Skia, notifyChange } from '@shopify/react-native-skia';
 
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 10;
 
 // MW - Manages undo/redo history stacks. Takes a ref to allStrokesPath and
 // layersRef (both are already stable refs owned by the skiaillustrator :)), plus
@@ -92,6 +92,7 @@ export const useUndoRedo = ({
   const redo = React.useCallback(() => {
     if (!redoStack.current.length) return;
     undoStack.current.push(buildSnapshot(shapes.value));
+    if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
     restoreSnapshot(redoStack.current.pop());
     setHistorySize({
       undo: undoStack.current.length,

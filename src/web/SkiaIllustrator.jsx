@@ -194,6 +194,12 @@ const drawStroke = (ctx, stroke) => {
   for (let i = 1; i < points.length; i += 1) {
     const prev = points[i - 1];
     const point = points[i];
+    // MW - A 'break' point starts a new subpath: the pointer left the paper
+    // and re-entered, so no connecting line is drawn across the gap.
+    if (point.break) {
+      ctx.moveTo(point.x, point.y);
+      continue;
+    }
     ctx.quadraticCurveTo(
       prev.x,
       prev.y,
@@ -809,6 +815,15 @@ const SkiaIllustratorWeb = React.forwardRef(
       };
     }, []);
 
+    // MW - Whether a canvas-space point sits on the paper. Paint strokes only
+    // record on-paper samples so drawing outside the canvas leaves no marks.
+    const isOnPaper = React.useCallback((point) => {
+      const { width, height } = stateRef.current.resolvedCanvas;
+      return (
+        point.x >= 0 && point.y >= 0 && point.x <= width && point.y <= height
+      );
+    }, []);
+
     const findTopShape = React.useCallback(
       (
         point,
@@ -1119,10 +1134,12 @@ const SkiaIllustratorWeb = React.forwardRef(
           current.currentTool === 'paint' ||
           current.currentTool === 'eraser'
         ) {
+          const onPaper = isOnPaper(point);
           pointerRef.current = {
             mode: 'stroke',
+            wasOnPaper: onPaper,
             activeStroke: {
-              points: [point],
+              points: onPaper ? [point] : [],
               colour:
                 current.currentTool === 'eraser'
                   ? 'black'
@@ -1203,6 +1220,7 @@ const SkiaIllustratorWeb = React.forwardRef(
         addShapeAt,
         addTextAt,
         findTopShape,
+        isOnPaper,
         pushHistory,
         renderCanvas,
         screenToCanvas,
@@ -1215,7 +1233,19 @@ const SkiaIllustratorWeb = React.forwardRef(
         if (!pointer) return;
         const point = screenToCanvas(event.clientX, event.clientY);
         if (pointer.mode === 'stroke') {
-          pointer.activeStroke.points.push(point);
+          // MW - Only record on-paper samples. When the pointer leaves and
+          // re-enters, mark the first sample back as a subpath break so no
+          // line is drawn across the off-paper gap.
+          if (!isOnPaper(point)) {
+            pointer.wasOnPaper = false;
+            return;
+          }
+          pointer.activeStroke.points.push(
+            pointer.wasOnPaper && pointer.activeStroke.points.length > 0
+              ? point
+              : { ...point, break: true }
+          );
+          pointer.wasOnPaper = true;
           renderCanvas();
           return;
         }
@@ -1303,7 +1333,7 @@ const SkiaIllustratorWeb = React.forwardRef(
             });
         }
       },
-      [renderCanvas, screenToCanvas, updateSelectedBounds]
+      [isOnPaper, renderCanvas, screenToCanvas, updateSelectedBounds]
     );
 
     const onPointerUp = React.useCallback(
@@ -1314,6 +1344,12 @@ const SkiaIllustratorWeb = React.forwardRef(
         const point = screenToCanvas(event.clientX, event.clientY);
         if (pointer.mode === 'stroke') {
           const stroke = pointer.activeStroke;
+          // MW - Gesture never touched the paper: nothing to commit.
+          if (stroke.points.length === 0) {
+            pointerRef.current = null;
+            renderCanvas();
+            return;
+          }
           const hitIds = [];
           if (stroke.isEraser) {
             const xs = stroke.points.map((p) => p.x);
