@@ -299,21 +299,19 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(8);
-    const activeStrokePath = useSharedValue(null);
+    const activeStrokePath = useSharedValue(Skia.Path.Make());
     const activeStrokeColour = useSharedValue('black');
 
-    const activeStrokeRenderColour = useDerivedValue(() => {
-      const colour = activeStrokeColour.value ?? currentColour;
+    const activeStrokeRenderColour = useMemo(() => {
       if (
         currentTool === 'highlighter' &&
-        typeof colour === 'string' &&
-        colour.length === 7 &&
-        colour.startsWith('#')
+        currentColour.length === 7 &&
+        currentColour.startsWith('#')
       ) {
-        return `${colour}80`;
+        return `${currentColour}80`;
       }
-      return colour;
-    });
+      return currentColour;
+    }, [currentColour, currentTool]);
 
     // MW - Font settings
     const activeFontSize = useSharedValue(32);
@@ -479,7 +477,7 @@ const SkiaIllustrator = React.forwardRef(
 
         if (resetTimer.current) clearTimeout(resetTimer.current);
         resetTimer.current = setTimeout(() => {
-          activeStrokePath.value = null;
+          activeStrokePath.value = Skia.Path.Make();
           notifyChange(activeStrokePath);
           resetTimer.current = null;
         }, 200);
@@ -577,7 +575,7 @@ const SkiaIllustrator = React.forwardRef(
           clearTimeout(resetTimer.current);
           resetTimer.current = null;
         }
-        activeStrokePath.value = null;
+        activeStrokePath.value = Skia.Path.Make();
         notifyChange(activeStrokePath);
 
         if (selectCreated) {
@@ -1111,6 +1109,10 @@ const SkiaIllustrator = React.forwardRef(
       selectedShapeBounds.value = null;
       selectedShapeRotation.value = 0;
       notifyChange(shapes);
+      notifyChange(selectedShapeId);
+      notifyChange(selectedShapeStart);
+      notifyChange(selectedShapeBounds);
+      notifyChange(selectedShapeRotation);
       notifySelectedShapeChange(null);
     }, [
       shapes,
@@ -1880,7 +1882,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeBounds.value = null;
         selectedShapeRotation.value = 0;
         notifySelectedShapeChange(null);
-        activeStrokePath.value = null;
+        activeStrokePath.value = Skia.Path.Make();
         notifyChange(activeStrokePath);
       },
       [
