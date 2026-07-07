@@ -321,27 +321,44 @@ const SkiaIllustrator = React.forwardRef(
     const activeStrokePath = useSharedValue(Skia.Path.Make());
     const activeStrokeColour = useSharedValue('black');
 
-    // MW - Holds the just-committed stroke path that still needs to be cleared
-    // from the live active-stroke slot. The clear is deferred until AFTER the
-    // committed stroke has been added to allStrokesPath and rendered, so there
-    // is never a frame where neither the active nor the committed path is
-    // painted (which showed up as a flash when a paint/highlighter stroke was
-    // released). See the useLayoutEffect below.
-    const activeStrokeResetRef = React.useRef(null);
+    // MW - Flash-free active-stroke handoff.
+    //
+    // When a paint/highlighter/eraser stroke is released the gesture leaves it
+    // painted in `activeStrokePath` and commits a copy into `allStrokesPath`.
+    // The active slot must then be cleared, but ONLY after the committed copy
+    // has rendered, otherwise there is a one-frame gap where neither is painted
+    // (the flash) — and if the slot is left uncleared it lingers as a stale
+    // stroke that (a) renders as a solid black blob once the tool switches away
+    // from eraser (blendMode flips clear -> srcOver) and (b) visibly tracks the
+    // size/colour controls (it is bound to activeStrokeThickness /
+    // activeStrokeRenderColour), making it look like already-painted lines
+    // change.
+    //
+    // The clear is deferred to a useLayoutEffect keyed on allStrokesPath (fires
+    // synchronously after the committed stroke renders, before paint). A plain
+    // JS-thread generation counter guards against wiping a brand-new stroke:
+    // every stroke start bumps strokeStartCountRef; the commit records the
+    // count at that moment; the effect only clears if no newer stroke has begun
+    // since. This avoids the previous cross-thread reference check
+    // (`activeStrokePath.value === committed`), which never matched because the
+    // JS- and UI-thread shared-value copies are different references, so the
+    // clear never ran.
+    const strokeStartCountRef = React.useRef(0);
+    const pendingClearGenRef = React.useRef(null);
 
-    // MW - Once the committed stroke is in the Skia tree (allStrokesPath just
-    // changed), atomically clear the active-stroke path in the same commit so
-    // the swap is seamless. Guard with a reference check: if a brand-new stroke
-    // has already replaced the active path (fast successive strokes), leave it
-    // alone so we never wipe an in-progress stroke.
+    const bumpStrokeStart = React.useCallback(() => {
+      strokeStartCountRef.current += 1;
+    }, []);
+
     useLayoutEffect(() => {
-      const committed = activeStrokeResetRef.current;
-      if (!committed) return;
-      activeStrokeResetRef.current = null;
-      if (activeStrokePath.value === committed) {
-        activeStrokePath.value = Skia.Path.Make();
-        notifyChange(activeStrokePath);
-      }
+      const gen = pendingClearGenRef.current;
+      if (gen == null) return;
+      pendingClearGenRef.current = null;
+      // MW - A newer stroke has started since this commit; its onStart already
+      // installed a fresh active path, so leave it alone.
+      if (strokeStartCountRef.current !== gen) return;
+      activeStrokePath.value = Skia.Path.Make();
+      notifyChange(activeStrokePath);
     }, [allStrokesPath, activeStrokePath]);
 
     const activeStrokeRenderColour = useMemo(() => {
@@ -523,7 +540,7 @@ const SkiaIllustrator = React.forwardRef(
         // The gesture intentionally leaves it painted in the active slot on
         // release; the useLayoutEffect keyed on allStrokesPath clears it in the
         // same commit the committed copy renders, so there is no flash.
-        activeStrokeResetRef.current = path;
+        pendingClearGenRef.current = strokeStartCountRef.current;
       },
       [
         pushHistory,
@@ -799,6 +816,7 @@ const SkiaIllustrator = React.forwardRef(
           activeStrokeColour,
           activeStrokeThickness,
           addPathToAllStrokes,
+          onStrokeStart: bumpStrokeStart,
         }),
       [
         currentTool,
@@ -811,6 +829,7 @@ const SkiaIllustrator = React.forwardRef(
         activeStrokeColour,
         activeStrokeThickness,
         addPathToAllStrokes,
+        bumpStrokeStart,
       ]
     );
 

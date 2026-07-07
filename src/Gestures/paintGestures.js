@@ -14,6 +14,7 @@ export const createPaintGestures = ({
   activeStrokeColour,
   activeStrokeThickness,
   addPathToAllStrokes,
+  onStrokeStart,
 }) => {
   const lastX = makeMutable(0);
   const lastY = makeMutable(0);
@@ -61,6 +62,9 @@ export const createPaintGestures = ({
     .maxPointers(1)
     .onStart((event) => {
       'worklet';
+      if (onStrokeStart) {
+        runOnJS(onStrokeStart)();
+      }
       const pt = getCanvasPoint(event.x, event.y);
       // MW - Strokes only exist on the paper. Starting off-paper creates an
       // empty path; the first on-paper sample in onUpdate will moveTo there.
