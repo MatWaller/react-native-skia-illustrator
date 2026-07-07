@@ -93,6 +93,7 @@ const SkiaIllustrator = React.forwardRef(
       onToolChange = null,
       onSelectedShapeChange = null,
       textModalProps = null,
+      active = true,
     },
     ref
   ) => {
@@ -325,7 +326,6 @@ const SkiaIllustrator = React.forwardRef(
       redo,
       canUndo,
       canRedo,
-      getRetainedStrokePaths,
       clearHistory,
     } = useUndoRedo({
       shapes,
@@ -409,34 +409,13 @@ const SkiaIllustrator = React.forwardRef(
       return () => safeDispose(backgroundImage);
     }, [backgroundImage]);
 
-    // MW - Master unmount cleanup. Releases every native-backed Skia Path this
-    // instance owns so the native heap is fully reclaimed when the host app
-    // closes / unmounts this SkiaIllustrator (the app may mount several).
-    // Paths can be shared between the live strokes and history snapshots, so we
-    // de-duplicate by reference and dispose each exactly once. The background
-    // image is disposed by its own effect above. The shared system typeface
-    // (getSharedTypeface) is intentionally NOT disposed \u2014 it is a process-wide
-    // singleton shared by every instance.
+    // MW - On unmount, drop undo/redo snapshot references. Do NOT manually
+    // dispose Path objects used by declarative <Path> props here: during RN
+    // Modal teardown, Skia's render thread may still read those JSI host
+    // objects after React begins unmounting the JS tree. Disposing them from
+    // JS during teardown can race that read and crash in jsi::Value::getObject.
     useEffect(() => {
       return () => {
-        const seen = new Set();
-        const disposePath = (p) => {
-          if (p && !seen.has(p)) {
-            seen.add(p);
-            safeDispose(p);
-          }
-        };
-        // In-progress active stroke.
-        disposePath(activeStrokePath.value);
-        // Committed strokes (read the ref for the latest value at unmount).
-        for (const stroke of allStrokesRef.current ?? []) {
-          disposePath(stroke?.path);
-        }
-        // Strokes still retained by undo/redo snapshots.
-        for (const p of getRetainedStrokePaths()) {
-          disposePath(p);
-        }
-        // Drop the snapshots themselves so nothing keeps this tree alive.
         clearHistory();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2230,7 +2209,8 @@ const SkiaIllustrator = React.forwardRef(
                 const iconSvgPath = shape.iconPath
                   ? Skia.Path.MakeFromSVGString(shape.iconPath)
                   : null;
-                if (iconSvgPath) {
+                try {
+                  if (!iconSvgPath) return;
                   const vbW = shape.iconViewBox?.width ?? 512;
                   const vbH = shape.iconViewBox?.height ?? 512;
                   canvas.save();
@@ -2240,6 +2220,8 @@ const SkiaIllustrator = React.forwardRef(
                   paint.setStyle(PaintStyle.Fill);
                   canvas.drawPath(iconSvgPath, paint);
                   canvas.restore();
+                } finally {
+                  safeDispose(iconSvgPath);
                 }
                 return;
               }
@@ -2280,29 +2262,35 @@ const SkiaIllustrator = React.forwardRef(
                     const customPath = segment.pathSvg
                       ? Skia.Path.MakeFromSVGString(segment.pathSvg)
                       : null;
-                    if (!customPath) return;
-                    const segmentPaint = Skia.Paint();
-                    segmentPaint.setColor(Skia.Color(segment.colour ?? colour));
-                    if (segment.isFilled) {
-                      segmentPaint.setStyle(PaintStyle.Fill);
-                    } else {
-                      segmentPaint.setStyle(PaintStyle.Stroke);
-                      segmentPaint.setStrokeWidth(segment.thickness ?? 8);
-                      segmentPaint.setStrokeCap(
-                        segment.isHighlighter
-                          ? StrokeCap.Square
-                          : StrokeCap.Round
+                    try {
+                      if (!customPath) return;
+                      const segmentPaint = Skia.Paint();
+                      segmentPaint.setColor(
+                        Skia.Color(segment.colour ?? colour)
                       );
-                      segmentPaint.setStrokeJoin(
-                        segment.isHighlighter
-                          ? StrokeJoin.Miter
-                          : StrokeJoin.Round
-                      );
+                      if (segment.isFilled) {
+                        segmentPaint.setStyle(PaintStyle.Fill);
+                      } else {
+                        segmentPaint.setStyle(PaintStyle.Stroke);
+                        segmentPaint.setStrokeWidth(segment.thickness ?? 8);
+                        segmentPaint.setStrokeCap(
+                          segment.isHighlighter
+                            ? StrokeCap.Square
+                            : StrokeCap.Round
+                        );
+                        segmentPaint.setStrokeJoin(
+                          segment.isHighlighter
+                            ? StrokeJoin.Miter
+                            : StrokeJoin.Round
+                        );
+                      }
+                      if (segment.isEraser) {
+                        segmentPaint.setBlendMode(BlendMode.Clear);
+                      }
+                      canvas.drawPath(customPath, segmentPaint);
+                    } finally {
+                      safeDispose(customPath);
                     }
-                    if (segment.isEraser) {
-                      segmentPaint.setBlendMode(BlendMode.Clear);
-                    }
-                    canvas.drawPath(customPath, segmentPaint);
                   });
                   if (pathSegments.some((segment) => segment.isEraser)) {
                     canvas.restore();
@@ -2334,15 +2322,19 @@ const SkiaIllustrator = React.forwardRef(
               if (!svgStr) return;
               const skPath = Skia.Path.MakeFromSVGString(svgStr);
               if (!skPath) return;
-              if (strokeStyleTypes.includes(type)) {
-                paint.setStyle(PaintStyle.Stroke);
-                paint.setStrokeWidth(2);
-                paint.setStrokeCap(StrokeCap.Round);
-                paint.setStrokeJoin(StrokeJoin.Round);
-              } else {
-                paint.setStyle(PaintStyle.Fill);
+              try {
+                if (strokeStyleTypes.includes(type)) {
+                  paint.setStyle(PaintStyle.Stroke);
+                  paint.setStrokeWidth(2);
+                  paint.setStrokeCap(StrokeCap.Round);
+                  paint.setStrokeJoin(StrokeJoin.Round);
+                } else {
+                  paint.setStyle(PaintStyle.Fill);
+                }
+                canvas.drawPath(skPath, paint);
+              } finally {
+                safeDispose(skPath);
               }
-              canvas.drawPath(skPath, paint);
             });
         }
       });
@@ -2369,6 +2361,32 @@ const SkiaIllustrator = React.forwardRef(
       }
       Keyboard.dismiss();
     }, [editorVisible, cancelEditor]);
+
+    useEffect(() => {
+      if (active) return;
+      setCanvasReady(false);
+      draggingShape.value = false;
+      dragLastTransX.value = 0;
+      dragLastTransY.value = 0;
+      edgePanX.value = 0;
+      edgePanY.value = 0;
+      lineAnchor.value = null;
+      pendingLinePreview.value = { active: false, x: 0, y: 0 };
+      activeStrokePath.value = Skia.Path.Make();
+      cancelEditor();
+      Keyboard.dismiss();
+    }, [
+      active,
+      activeStrokePath,
+      cancelEditor,
+      draggingShape,
+      dragLastTransX,
+      dragLastTransY,
+      edgePanX,
+      edgePanY,
+      lineAnchor,
+      pendingLinePreview,
+    ]);
 
     // MW - Memoise the window-sized canvas style so a new object isn't
     // allocated on every render (only when the window dimensions change).
@@ -2612,158 +2630,172 @@ const SkiaIllustrator = React.forwardRef(
 
     return (
       <GestureHandlerRootView style={styles.root}>
-        <GestureDetector gesture={activeGestures}>
-          <View style={styles.container} onLayout={() => setCanvasReady(true)}>
-            <Canvas style={canvasStyle}>
-              <Group matrix={viewportMatrix}>
-                {
-                  // MW - Below is the paperRect with a white background and a shadow.
-                }
-                <Box box={paperRect} color="white">
-                  <BoxShadow dx={0} dy={2} blur={4} color="rgba(0,0,0,0.65)" />
-                  <BoxShadow
-                    dx={0}
-                    dy={12}
-                    blur={24}
-                    color="rgba(0,0,0,0.08)"
-                  />
-                </Box>
-                {/* MW - Ruler bars sit outside the clip so they extend into
+        {active ? (
+          <GestureDetector gesture={activeGestures}>
+            <View
+              style={styles.container}
+              onLayout={() => setCanvasReady(true)}
+            >
+              <Canvas style={canvasStyle}>
+                <Group matrix={viewportMatrix}>
+                  {
+                    // MW - Below is the paperRect with a white background and a shadow.
+                  }
+                  <Box box={paperRect} color="white">
+                    <BoxShadow
+                      dx={0}
+                      dy={2}
+                      blur={4}
+                      color="rgba(0,0,0,0.65)"
+                    />
+                    <BoxShadow
+                      dx={0}
+                      dy={12}
+                      blur={24}
+                      color="rgba(0,0,0,0.08)"
+                    />
+                  </Box>
+                  {/* MW - Ruler bars sit outside the clip so they extend into
                     the grey canvas margin and are never cropped by the paper. */}
-                <RulerOverlay
-                  canvasWidth={resolvedCanvas.width}
-                  canvasHeight={resolvedCanvas.height}
-                  visible={showRuler}
-                  unit={rulerUnit}
-                />
-                {
-                  // MW - Below is the drawing area of the canvas - anything inside of the Group with the clip will be clipped to the paperRect.
-                }
-                <Group clip={paperRect}>
-                  {/* MW - Grid overlay. Rendered first so it sits behind all
-                      strokes and shapes. Clipped to the paper boundary. */}
-                  <GridOverlay
+                  <RulerOverlay
                     canvasWidth={resolvedCanvas.width}
                     canvasHeight={resolvedCanvas.height}
-                    visible={showGrid}
+                    visible={showRuler}
+                    unit={rulerUnit}
                   />
-                  {backgroundImage && (
-                    <Image
-                      image={backgroundImage}
-                      x={0}
-                      y={0}
-                      width={resolvedCanvas.width}
-                      height={resolvedCanvas.height}
-                      fit="fill"
+                  {
+                    // MW - Below is the drawing area of the canvas - anything inside of the Group with the clip will be clipped to the paperRect.
+                  }
+                  <Group clip={paperRect}>
+                    {/* MW - Grid overlay. Rendered first so it sits behind all
+                      strokes and shapes. Clipped to the paper boundary. */}
+                    <GridOverlay
+                      canvasWidth={resolvedCanvas.width}
+                      canvasHeight={resolvedCanvas.height}
+                      visible={showGrid}
                     />
-                  )}
-                  {/* MW - Render layers in order (bottom index → back,
+                    {backgroundImage && (
+                      <Image
+                        image={backgroundImage}
+                        x={0}
+                        y={0}
+                        width={resolvedCanvas.width}
+                        height={resolvedCanvas.height}
+                        fit="fill"
+                      />
+                    )}
+                    {/* MW - Render layers in order (bottom index → back,
                       top index → front). Background image is always beneath
                       all layers. The drawing layer gets an isolated offscreen
                       buffer so the eraser blendMode works correctly without
                       affecting shapes or text on other layers. */}
-                  {layers
-                    .filter((layer) => layer.id !== 'drawing')
-                    .map((layer) => (
-                      <Group key={layer.id}>
-                        {shapeList
-                          .filter((s) => getShapeLayer(s) === layer.id)
-                          .map((shapeSnapshot) => (
-                            <ShapeNode
-                              key={shapeSnapshot.id}
-                              shapeID={shapeSnapshot.id}
-                              shapes={shapes}
-                              shapeSnapshot={shapeSnapshot}
-                            />
-                          ))}
-                      </Group>
-                    ))}
-                  <Group key="drawing" layer={<Paint />}>
-                    {allStrokesPath.map((stroke, index) =>
-                      stroke.isFilled ? (
-                        <Path
-                          key={index}
-                          path={stroke.path}
-                          color={stroke.colour}
-                          style="fill"
-                          blendMode="srcOver"
-                        />
-                      ) : (
-                        <Path
-                          key={index}
-                          path={stroke.path}
-                          color={stroke.colour}
-                          style="stroke"
-                          strokeWidth={stroke.thickness || 8}
-                          strokeCap={stroke.isHighlighter ? 'square' : 'round'}
-                          strokeJoin={stroke.isHighlighter ? 'miter' : 'round'}
-                          blendMode={stroke.isEraser ? 'clear' : 'srcOver'}
-                        />
-                      )
-                    )}
-                    {/* MW - Eraser clear pass. Kept INSIDE the drawing
+                    {layers
+                      .filter((layer) => layer.id !== 'drawing')
+                      .map((layer) => (
+                        <Group key={layer.id}>
+                          {shapeList
+                            .filter((s) => getShapeLayer(s) === layer.id)
+                            .map((shapeSnapshot) => (
+                              <ShapeNode
+                                key={shapeSnapshot.id}
+                                shapeID={shapeSnapshot.id}
+                                shapes={shapes}
+                                shapeSnapshot={shapeSnapshot}
+                              />
+                            ))}
+                        </Group>
+                      ))}
+                    <Group key="drawing" layer={<Paint />}>
+                      {allStrokesPath.map((stroke, index) =>
+                        stroke.isFilled ? (
+                          <Path
+                            key={index}
+                            path={stroke.path}
+                            color={stroke.colour}
+                            style="fill"
+                            blendMode="srcOver"
+                          />
+                        ) : (
+                          <Path
+                            key={index}
+                            path={stroke.path}
+                            color={stroke.colour}
+                            style="stroke"
+                            strokeWidth={stroke.thickness || 8}
+                            strokeCap={
+                              stroke.isHighlighter ? 'square' : 'round'
+                            }
+                            strokeJoin={
+                              stroke.isHighlighter ? 'miter' : 'round'
+                            }
+                            blendMode={stroke.isEraser ? 'clear' : 'srcOver'}
+                          />
+                        )
+                      )}
+                      {/* MW - Eraser clear pass. Kept INSIDE the drawing
                           layer's offscreen buffer so its `clear` blendMode
                           erases committed paint without punching through to
                           the shapes/background beneath. A separate visual
                           preview is rendered on top of every layer below. */}
-                    {currentTool === 'eraser' && (
+                      {currentTool === 'eraser' && (
+                        <Path
+                          path={activeStrokePath}
+                          color={activeStrokeRenderColour}
+                          style="stroke"
+                          strokeWidth={activeStrokeThickness}
+                          strokeCap="round"
+                          strokeJoin="round"
+                          blendMode="clear"
+                        />
+                      )}
+                    </Group>
+                    {(currentTool === 'paint' ||
+                      currentTool === 'highlighter' ||
+                      currentTool === 'eraser') && (
                       <Path
                         path={activeStrokePath}
-                        color={activeStrokeRenderColour}
+                        color={
+                          currentTool === 'eraser'
+                            ? 'rgba(0,0,0,0.35)'
+                            : activeStrokeRenderColour
+                        }
                         style="stroke"
                         strokeWidth={activeStrokeThickness}
-                        strokeCap="round"
-                        strokeJoin="round"
-                        blendMode="clear"
+                        strokeCap={
+                          currentTool === 'highlighter' ? 'square' : 'round'
+                        }
+                        strokeJoin={
+                          currentTool === 'highlighter' ? 'miter' : 'round'
+                        }
                       />
                     )}
-                  </Group>
-                  {(currentTool === 'paint' ||
-                    currentTool === 'highlighter' ||
-                    currentTool === 'eraser') && (
-                    <Path
-                      path={activeStrokePath}
-                      color={
-                        currentTool === 'eraser'
-                          ? 'rgba(0,0,0,0.35)'
-                          : activeStrokeRenderColour
-                      }
-                      style="stroke"
-                      strokeWidth={activeStrokeThickness}
-                      strokeCap={
-                        currentTool === 'highlighter' ? 'square' : 'round'
-                      }
-                      strokeJoin={
-                        currentTool === 'highlighter' ? 'miter' : 'round'
-                      }
+                    {/* MW - Two-tap line placement anchor marker. */}
+                    <Circle
+                      cx={pendingMarkerCx}
+                      cy={pendingMarkerCy}
+                      r={pendingMarkerR}
+                      color="#6366f1"
                     />
-                  )}
-                  {/* MW - Two-tap line placement anchor marker. */}
-                  <Circle
-                    cx={pendingMarkerCx}
-                    cy={pendingMarkerCy}
-                    r={pendingMarkerR}
-                    color="#6366f1"
-                  />
-                  {/* MW - Selection outline. Always on top of all layers;
+                    {/* MW - Selection outline. Always on top of all layers;
                       driven entirely on the UI thread via derived values.
                       Width/height are 0 when nothing is selected. */}
-                  <SelectionOutline
-                    origin={selectionOrigin}
-                    transform={selectionTransform}
-                    x={selectionX}
-                    y={selectionY}
-                    width={selectionWidth}
-                    height={selectionHeight}
-                  />
+                    <SelectionOutline
+                      origin={selectionOrigin}
+                      transform={selectionTransform}
+                      x={selectionX}
+                      y={selectionY}
+                      width={selectionWidth}
+                      height={selectionHeight}
+                    />
+                  </Group>
                 </Group>
-              </Group>
-            </Canvas>
-            <LoadingOverlay visible={!canvasReady} />
-          </View>
-        </GestureDetector>
+              </Canvas>
+              <LoadingOverlay visible={!canvasReady} />
+            </View>
+          </GestureDetector>
+        ) : null}
         <TextEditingModal
-          visible={editorVisible}
+          visible={active && editorVisible}
           mode={editorMode}
           value={editorValue}
           onChangeText={onEditorChange}

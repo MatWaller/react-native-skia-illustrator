@@ -100,21 +100,6 @@ export const useUndoRedo = ({
     });
   }, [buildSnapshot, restoreSnapshot, shapes]);
 
-  // MW - Return every Skia Path object still retained by the undo/redo
-  // snapshots so the owner can dispose the native memory on unmount. The
-  // caller is responsible for de-duplicating against live strokes (a path may
-  // be referenced by both a snapshot and the current allStrokesPath).
-  const getRetainedStrokePaths = React.useCallback(() => {
-    const paths = [];
-    for (const snap of undoStack.current) {
-      for (const s of snap.strokes ?? []) if (s?.path) paths.push(s.path);
-    }
-    for (const snap of redoStack.current) {
-      for (const s of snap.strokes ?? []) if (s?.path) paths.push(s.path);
-    }
-    return paths;
-  }, []);
-
   // MW - Empty both history stacks and reset the size counters. Used on unmount
   // so the snapshots (and their retained Skia paths) can be garbage collected.
   const clearHistory = React.useCallback(() => {
@@ -130,7 +115,6 @@ export const useUndoRedo = ({
     undo,
     redo,
     historySize,
-    getRetainedStrokePaths,
     clearHistory,
     canUndo: () => undoStack.current.length > 0,
     canRedo: () => redoStack.current.length > 0,

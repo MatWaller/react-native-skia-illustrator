@@ -188,10 +188,20 @@ ref.current.setText('Hello world');
 | `canvasHeight` | `number` | `200` | Paper height in canvas units (ignored if `imageSource` is set). |
 | `imageSource` | `string \| null` | `null` | Base64 / data-URI background image. Sizes the canvas to the image. |
 | `initialData` | `string \| object \| null` | `null` | Serialized project to restore on mount (see `serializeCanvas`). |
+| `active` | `boolean` | `true` | Set to `false` to unmount the native Skia canvas subtree while keeping the component instance alive. Useful when hosting inside a React Native `Modal`; pass the modal's visible state so Skia detaches during modal close/teardown. |
 | `pathToShape` | `boolean` | `false` | Commit paint strokes as selectable, movable, resizable custom path shapes. |
 | `onToolChange` | `(tool: string) => void` | — | Fires when the active tool changes. |
 | `onSelectedShapeChange` | `(hasSelection: boolean) => void` | — | Fires when the selection changes. |
 | `textModalProps` | `object \| null` | `null` | Style/label overrides for the text entry modal (see below). |
+
+When rendering inside a host React Native `Modal`, wire `active` to the modal
+visibility so the Skia surface is removed before the modal surface is destroyed:
+
+```jsx
+<Modal visible={editorVisible} animationType="slide">
+  <SkiaIllustrator ref={ref} active={editorVisible} />
+</Modal>
+```
 
 ### Theming the text modal
 

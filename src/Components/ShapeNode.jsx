@@ -243,7 +243,12 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
           },
         ]
       : [];
-  }, [currentShape?.pathSegments, currentShape?.pathSvg]);
+  }, [
+    currentShape?.colour,
+    currentShape?.pathSegments,
+    currentShape?.pathSvg,
+    currentShape?.thickness,
+  ]);
 
   const customPathMatrix = useDerivedValue(() => {
     if (shapeType !== 'path') return Skia.Matrix();
