@@ -65,6 +65,22 @@ import {
   PAPER_SIZE,
 } from '../utils/shapeUtils';
 
+// MW - Defensively release a native-backed Skia object (Path, Image, Surface,
+// etc.). Skia host objects hold native memory that is NOT tracked by the JS
+// garbage collector, so leaving them un-disposed leaks native heap across
+// mount/unmount cycles — which matters when the host app renders several
+// SkiaIllustrator instances. Guarded so it is a no-op on Skia versions without
+// dispose() and safe against double-dispose.
+const safeDispose = (obj) => {
+  try {
+    if (obj && typeof obj.dispose === 'function') {
+      obj.dispose();
+    }
+  } catch {
+    // Already disposed / not disposable in this Skia version — ignore.
+  }
+};
+
 const SkiaIllustrator = React.forwardRef(
   (
     {
@@ -302,47 +318,34 @@ const SkiaIllustrator = React.forwardRef(
       [onSelectedShapeChange]
     );
 
-    const { buildSnapshot, pushHistory, undo, redo, canUndo, canRedo } =
-      useUndoRedo({
-        shapes,
-        allStrokesRef,
-        layersRef,
-        setShapeList,
-        setAllStrokesPath,
-        setLayers,
-        selectedShapeId,
-        selectedShapeBounds,
-        selectedShapeRotation,
-        notifySelectedShapeChange,
-      });
+    const {
+      buildSnapshot,
+      pushHistory,
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+      getRetainedStrokePaths,
+      clearHistory,
+    } = useUndoRedo({
+      shapes,
+      allStrokesRef,
+      layersRef,
+      setShapeList,
+      setAllStrokesPath,
+      setLayers,
+      selectedShapeId,
+      selectedShapeBounds,
+      selectedShapeRotation,
+      notifySelectedShapeChange,
+    });
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(8);
     const activeStrokePath = useSharedValue(Skia.Path.Make());
     const activeStrokeColour = useSharedValue('black');
 
-    // MW - Flash-free active-stroke handoff.
-    //
-    // When a paint/highlighter/eraser stroke is released the gesture leaves it
-    // painted in `activeStrokePath` and commits a copy into `allStrokesPath`.
-    // The active slot must then be cleared, but ONLY after the committed copy
-    // has rendered, otherwise there is a one-frame gap where neither is painted
-    // (the flash) — and if the slot is left uncleared it lingers as a stale
-    // stroke that (a) renders as a solid black blob once the tool switches away
-    // from eraser (blendMode flips clear -> srcOver) and (b) visibly tracks the
-    // size/colour controls (it is bound to activeStrokeThickness /
-    // activeStrokeRenderColour), making it look like already-painted lines
-    // change.
-    //
-    // The clear is deferred to a useLayoutEffect keyed on allStrokesPath (fires
-    // synchronously after the committed stroke renders, before paint). A plain
-    // JS-thread generation counter guards against wiping a brand-new stroke:
-    // every stroke start bumps strokeStartCountRef; the commit records the
-    // count at that moment; the effect only clears if no newer stroke has begun
-    // since. This avoids the previous cross-thread reference check
-    // (`activeStrokePath.value === committed`), which never matched because the
-    // JS- and UI-thread shared-value copies are different references, so the
-    // clear never ran.
+
     const strokeStartCountRef = React.useRef(0);
     const pendingClearGenRef = React.useRef(null);
 
@@ -354,11 +357,15 @@ const SkiaIllustrator = React.forwardRef(
       const gen = pendingClearGenRef.current;
       if (gen == null) return;
       pendingClearGenRef.current = null;
-      // MW - A newer stroke has started since this commit; its onStart already
-      // installed a fresh active path, so leave it alone.
-      if (strokeStartCountRef.current !== gen) return;
-      activeStrokePath.value = Skia.Path.Make();
-      notifyChange(activeStrokePath);
+
+      const raf = requestAnimationFrame(() => {
+        // MW - A newer stroke has started since this commit; its onStart already
+        // installed a fresh active path, so leave it alone.
+        if (strokeStartCountRef.current !== gen) return;
+        activeStrokePath.value = Skia.Path.Make();
+        notifyChange(activeStrokePath);
+      });
+      return () => cancelAnimationFrame(raf);
     }, [allStrokesPath, activeStrokePath]);
 
     const activeStrokeRenderColour = useMemo(() => {
@@ -393,6 +400,48 @@ const SkiaIllustrator = React.forwardRef(
       }
       return null;
     }, [imageSource]);
+
+    // MW - Dispose the decoded background bitmap when the source changes or the
+    // component unmounts. MakeImageFromEncoded allocates a full uncompressed
+    // bitmap in native memory (tens of MB for a large image); without this the
+    // previous image leaks on every imageSource change and, critically, every
+    // SkiaIllustrator instance leaks its bitmap on unmount.
+    useEffect(() => {
+      return () => safeDispose(backgroundImage);
+    }, [backgroundImage]);
+
+    // MW - Master unmount cleanup. Releases every native-backed Skia Path this
+    // instance owns so the native heap is fully reclaimed when the host app
+    // closes / unmounts this SkiaIllustrator (the app may mount several).
+    // Paths can be shared between the live strokes and history snapshots, so we
+    // de-duplicate by reference and dispose each exactly once. The background
+    // image is disposed by its own effect above. The shared system typeface
+    // (getSharedTypeface) is intentionally NOT disposed \u2014 it is a process-wide
+    // singleton shared by every instance.
+    useEffect(() => {
+      return () => {
+        const seen = new Set();
+        const disposePath = (p) => {
+          if (p && !seen.has(p)) {
+            seen.add(p);
+            safeDispose(p);
+          }
+        };
+        // In-progress active stroke.
+        disposePath(activeStrokePath.value);
+        // Committed strokes (read the ref for the latest value at unmount).
+        for (const stroke of allStrokesRef.current ?? []) {
+          disposePath(stroke?.path);
+        }
+        // Strokes still retained by undo/redo snapshots.
+        for (const p of getRetainedStrokePaths()) {
+          disposePath(p);
+        }
+        // Drop the snapshots themselves so nothing keeps this tree alive.
+        clearHistory();
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // MW - Function to add the completed active stroke path to the list of all
     // strokes. The active path is reset on the UI thread when the gesture ends
@@ -2296,9 +2345,17 @@ const SkiaIllustrator = React.forwardRef(
       surface.flush();
 
       const imageSnapshot = surface.makeImageSnapshot();
-      const base64 = imageSnapshot.encodeToBase64();
-
-      return `data:image/png;base64,${base64}`;
+      try {
+        const base64 = imageSnapshot.encodeToBase64();
+        return `data:image/png;base64,${base64}`;
+      } finally {
+        // MW - Release the offscreen surface and its snapshot. Both are large
+        // native allocations (a full canvas-sized buffer each); without this
+        // every save leaked a surface + image, quickly exhausting native heap
+        // when saving is triggered repeatedly (e.g. autosave).
+        safeDispose(imageSnapshot);
+        safeDispose(surface);
+      }
     }, [resolvedCanvas, backgroundImage, layers, allStrokesPath, shapes]);
 
     const closeKeyboard = React.useCallback(() => {
@@ -2632,26 +2689,24 @@ const SkiaIllustrator = React.forwardRef(
                               />
                             )
                           )}
-                          {/* MW - Always mounted. `activeStrokePath` is always
-                              a valid (possibly empty) Skia path, so there is no
-                              need to read `.value` during render (which logs a
-                              Reanimated warning). The Path node subscribes to
-                              the shared value and updates on the UI thread. */}
-                          <Path
-                            path={activeStrokePath}
-                            color={activeStrokeRenderColour}
-                            style="stroke"
-                            strokeWidth={activeStrokeThickness}
-                            strokeCap={
-                              currentTool === 'highlighter' ? 'square' : 'round'
-                            }
-                            strokeJoin={
-                              currentTool === 'highlighter' ? 'miter' : 'round'
-                            }
-                            blendMode={
-                              currentTool === 'eraser' ? 'clear' : 'srcOver'
-                            }
-                          />
+                          {/* MW - Eraser preview only. Kept INSIDE the drawing
+                              layer's offscreen buffer so its `clear` blendMode
+                              erases committed paint without punching through to
+                              the shapes/background beneath. Paint & highlighter
+                              previews are rendered on top of every layer
+                              instead (see below) so the in-progress line is
+                              always visible above shapes and text. */}
+                          {currentTool === 'eraser' && (
+                            <Path
+                              path={activeStrokePath}
+                              color={activeStrokeRenderColour}
+                              style="stroke"
+                              strokeWidth={activeStrokeThickness}
+                              strokeCap="round"
+                              strokeJoin="round"
+                              blendMode="clear"
+                            />
+                          )}
                         </Group>
                       );
                     }
@@ -2670,6 +2725,21 @@ const SkiaIllustrator = React.forwardRef(
                       </Group>
                     );
                   })}
+                  {(currentTool === 'paint' ||
+                    currentTool === 'highlighter') && (
+                    <Path
+                      path={activeStrokePath}
+                      color={activeStrokeRenderColour}
+                      style="stroke"
+                      strokeWidth={activeStrokeThickness}
+                      strokeCap={
+                        currentTool === 'highlighter' ? 'square' : 'round'
+                      }
+                      strokeJoin={
+                        currentTool === 'highlighter' ? 'miter' : 'round'
+                      }
+                    />
+                  )}
                   {/* MW - Two-tap line placement anchor marker. */}
                   <Circle
                     cx={pendingMarkerCx}
