@@ -1607,6 +1607,23 @@ const SkiaIllustratorWeb = React.forwardRef(
           setSelectedShapeId(null);
         },
         hasSelectedShape: () => stateRef.current.selectedShapeId != null,
+        duplicateSelectedShape: () => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected) return null;
+          pushHistory();
+          const duplicate = {
+            ...selected,
+            id: makeId(selected.type ?? 'shape'),
+            x: selected.x + 20,
+            y: selected.y + 20,
+          };
+          setShapes([...current.shapes, duplicate]);
+          setSelectedShapeId(duplicate.id);
+          return duplicate.id;
+        },
         setShape: (type) => {
           setShapeToolType(type);
           const current = stateRef.current;

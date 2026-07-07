@@ -12,7 +12,6 @@ export const createPaintGestures = ({
   activeStrokeColour,
   activeStrokeThickness,
   addPathToAllStrokes,
-  cancelPendingReset,
 }) => {
   const lastX = makeMutable(0);
   const lastY = makeMutable(0);
@@ -49,11 +48,6 @@ export const createPaintGestures = ({
     .maxPointers(1)
     .onStart((event) => {
       'worklet';
-      // MW - Cancel any pending reset from the previous stroke so the
-      // delayed timer can't wipe this fresh path mid-draw.
-      if (cancelPendingReset) {
-        runOnJS(cancelPendingReset)();
-      }
       const pt = getCanvasPoint(event.x, event.y);
       const path = Skia.Path.Make();
       path.moveTo(pt.x, pt.y);
@@ -97,8 +91,10 @@ export const createPaintGestures = ({
       'worklet';
       let isEraser = currentTool === 'eraser';
       let isHighlighter = currentTool === 'highlighter';
+      const completedPath = activeStrokePath.value;
+      if (!completedPath) return;
       runOnJS(addPathToAllStrokes)(
-        activeStrokePath.value,
+        completedPath,
         activeStrokeColour.value,
         activeStrokeThickness.value,
         isEraser,
@@ -109,6 +105,8 @@ export const createPaintGestures = ({
           endPressure: lastPressure.value,
         }
       );
+      activeStrokePath.value = Skia.Path.Make();
+      notifyChange(activeStrokePath);
     });
 
   return { paintGesture };

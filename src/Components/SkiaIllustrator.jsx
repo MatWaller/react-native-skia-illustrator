@@ -335,10 +335,9 @@ const SkiaIllustrator = React.forwardRef(
       return null;
     }, [imageSource]);
 
-    // MW - rest timer
-    const resetTimer = React.useRef(null);
-
-    // MW - Function to add the current active stroke path to the list of all strokes and reset the active stroke path after a short delay.
+    // MW - Function to add the completed active stroke path to the list of all
+    // strokes. The active path is reset on the UI thread when the gesture ends
+    // so a delayed JS timer cannot overwrite a fresh in-progress stroke.
     const addPathToAllStrokes = React.useCallback(
       (
         path,
@@ -446,6 +445,10 @@ const SkiaIllustrator = React.forwardRef(
               selectedShapeBounds.value = null;
               selectedShapeRotation.value = 0;
               selectedShapeStart.value = { x: 0, y: 0 };
+              notifyChange(selectedShapeId);
+              notifyChange(selectedShapeBounds);
+              notifyChange(selectedShapeRotation);
+              notifyChange(selectedShapeStart);
               notifySelectedShapeChange(null);
             }
           }
@@ -474,16 +477,8 @@ const SkiaIllustrator = React.forwardRef(
               : undefined,
           },
         ]);
-
-        if (resetTimer.current) clearTimeout(resetTimer.current);
-        resetTimer.current = setTimeout(() => {
-          activeStrokePath.value = Skia.Path.Make();
-          notifyChange(activeStrokePath);
-          resetTimer.current = null;
-        }, 200);
       },
       [
-        activeStrokePath,
         pushHistory,
         buildSnapshot,
         shapes,
@@ -570,11 +565,6 @@ const SkiaIllustrator = React.forwardRef(
         shapes.value = next;
         setShapeList(next);
         setAllStrokesPath([]);
-
-        if (resetTimer.current) {
-          clearTimeout(resetTimer.current);
-          resetTimer.current = null;
-        }
         activeStrokePath.value = Skia.Path.Make();
         notifyChange(activeStrokePath);
 
@@ -611,28 +601,6 @@ const SkiaIllustrator = React.forwardRef(
         shapes,
       ]
     );
-
-    // MW - Cancel a queued active-stroke reset. Called when a new stroke
-    // starts so the previous stroke's delayed timer can't wipe the fresh
-    // path mid-draw (which caused a stray line from the canvas origin).
-    const cancelPendingReset = React.useCallback(() => {
-      if (resetTimer.current) {
-        clearTimeout(resetTimer.current);
-        resetTimer.current = null;
-      }
-    }, []);
-
-    // MW - Clear any pending active-stroke reset timer on unmount so the
-    // delayed callback can't fire after teardown and mutate a disposed shared
-    // value (a memory/leak hazard and a potential UI-thread crash).
-    useEffect(() => {
-      return () => {
-        if (resetTimer.current) {
-          clearTimeout(resetTimer.current);
-          resetTimer.current = null;
-        }
-      };
-    }, []);
 
     // MW - Called via runOnJS from gesture onBegin handlers before a shape is
     // dragged or rotated. The shapesSnapshot is captured on the UI thread at
@@ -775,7 +743,6 @@ const SkiaIllustrator = React.forwardRef(
           activeStrokeColour,
           activeStrokeThickness,
           addPathToAllStrokes,
-          cancelPendingReset,
         }),
       [
         currentTool,
@@ -786,7 +753,6 @@ const SkiaIllustrator = React.forwardRef(
         activeStrokeColour,
         activeStrokeThickness,
         addPathToAllStrokes,
-        cancelPendingReset,
       ]
     );
 
@@ -1114,6 +1080,92 @@ const SkiaIllustrator = React.forwardRef(
       notifyChange(selectedShapeBounds);
       notifyChange(selectedShapeRotation);
       notifySelectedShapeChange(null);
+    }, [
+      shapes,
+      selectedShapeId,
+      selectedShapeStart,
+      selectedShapeBounds,
+      selectedShapeRotation,
+      notifySelectedShapeChange,
+      pushHistory,
+      buildSnapshot,
+    ]);
+
+    // MW - Duplicate the currently selected shape. The copy is offset slightly
+    // so it doesn't sit invisibly on top of the original, placed at the end of
+    // its layer's render order, and becomes the new selection.
+    const duplicateSelectedShape = React.useCallback(() => {
+      const shapeId = selectedShapeId.value;
+      if (!shapeId) return null;
+      const idx = shapes.value.findIndex((s) => s.id === shapeId);
+      if (idx === -1) return null;
+
+      pushHistory(buildSnapshot(shapes.value));
+
+      const source = shapes.value[idx];
+      const OFFSET = 20;
+      const duplicate = {
+        ...source,
+        id: `${source.type ?? 'shape'}-${Date.now()}-${Math.floor(
+          Math.random() * 1000
+        )}`,
+        x: source.x + OFFSET,
+        y: source.y + OFFSET,
+      };
+
+      const next = [...shapes.value, duplicate];
+      shapes.value = next;
+      setShapeList(next);
+
+      // MW - Select the copy, mirroring the bounds logic used elsewhere
+      // (circle: centre+radius, text: baseline box, line: signed extent).
+      let bounds;
+      if (duplicate.type === 'circle') {
+        const r = duplicate.radius ?? 10;
+        bounds = {
+          x: duplicate.x - r,
+          y: duplicate.y - r,
+          width: r * 2,
+          height: r * 2,
+        };
+      } else if (duplicate.type === 'text') {
+        const h = duplicate.height ?? duplicate.fontSize ?? 32;
+        bounds = {
+          x: duplicate.x,
+          y: duplicate.y - h,
+          width: duplicate.width ?? 0,
+          height: h,
+        };
+      } else if (duplicate.type === 'line') {
+        const w = duplicate.width ?? 0;
+        const h = duplicate.height ?? 0;
+        bounds = {
+          x: Math.min(duplicate.x, duplicate.x + w),
+          y: Math.min(duplicate.y, duplicate.y + h),
+          width: Math.abs(w),
+          height: Math.abs(h),
+        };
+      } else {
+        bounds = {
+          x: duplicate.x,
+          y: duplicate.y,
+          width: duplicate.width,
+          height: duplicate.height,
+        };
+      }
+
+      selectedShapeId.value = duplicate.id;
+      selectedShapeStart.value = { x: duplicate.x, y: duplicate.y };
+      selectedShapeBounds.value = bounds;
+      selectedShapeRotation.value = duplicate.rotation ?? 0;
+      notifyChange(shapes);
+      notifyChange(selectedShapeId);
+      notifyChange(selectedShapeStart);
+      notifyChange(selectedShapeBounds);
+      notifyChange(selectedShapeRotation);
+      notifySelectedShapeChange(duplicate.id);
+
+      return duplicate.id;
     }, [
       shapes,
       selectedShapeId,
@@ -1580,6 +1632,55 @@ const SkiaIllustrator = React.forwardRef(
         setActiveLayerId((prev) => (prev === layerId ? 'shapes' : prev));
       },
       [shapes]
+    );
+
+    // MW - Duplicate a layer and all shapes assigned to it. Defaults to the
+    // currently active layer (the selected layer in the host UI) and makes the
+    // duplicate active so follow-up drawing targets the new layer.
+    const duplicateLayer = React.useCallback(
+      (layerId = activeLayerIdRef.current, name = null) => {
+        if (!layerId || layerId === 'drawing') return null;
+
+        const currentLayers = layersRef.current;
+        const sourceLayer = currentLayers.find((layer) => layer.id === layerId);
+        if (!sourceLayer) return null;
+
+        pushHistory(buildSnapshot(shapes.value));
+
+        const duplicateId = `layer-${Date.now()}-${Math.floor(
+          Math.random() * 1000
+        )}`;
+        const duplicateName = name || `${sourceLayer.name || 'Layer'} Copy`;
+        const sourceIndex = currentLayers.findIndex(
+          (layer) => layer.id === layerId
+        );
+        const nextLayers = [...currentLayers];
+        nextLayers.splice(sourceIndex + 1, 0, {
+          ...sourceLayer,
+          id: duplicateId,
+          name: duplicateName,
+        });
+
+        const duplicatedShapes = shapes.value
+          .filter((shape) => getShapeLayer(shape) === layerId)
+          .map((shape) => ({
+            ...shape,
+            id: `${shape.id}-copy-${Date.now()}-${Math.floor(
+              Math.random() * 1000
+            )}`,
+            layer: duplicateId,
+          }));
+        const nextShapes = [...shapes.value, ...duplicatedShapes];
+
+        setLayers(nextLayers);
+        shapes.value = nextShapes;
+        setShapeList(nextShapes);
+        setActiveLayerId(duplicateId);
+        notifyChange(shapes);
+
+        return duplicateId;
+      },
+      [buildSnapshot, pushHistory, shapes]
     );
 
     // MW - Move a shape to a different layer.
@@ -2167,6 +2268,7 @@ const SkiaIllustrator = React.forwardRef(
         closeKeyboard,
         deleteSelectedShape: deletedSelectedShape,
         deletedSelectedShape,
+        duplicateSelectedShape,
         hasSelectedShape: () => selectedShapeId.value != null,
         setShape: (type) => {
           setShapeToolType(type);
@@ -2297,6 +2399,8 @@ const SkiaIllustrator = React.forwardRef(
         // MW - Layer management
         getLayers: () => layers.map((l) => ({ ...l })),
         addLayer,
+        duplicateLayer,
+        duplicateSelectedLayer: (name) => duplicateLayer(undefined, name),
         removeLayer,
         setActiveLayer: (layerId) => setActiveLayerId(layerId),
         getActiveLayer: () => activeLayerIdRef.current,
@@ -2336,6 +2440,7 @@ const SkiaIllustrator = React.forwardRef(
         buildSnapshot,
         pushHistory,
         deletedSelectedShape,
+        duplicateSelectedShape,
         clearSelection,
         closeKeyboard,
         activeStrokeThickness,
@@ -2349,6 +2454,7 @@ const SkiaIllustrator = React.forwardRef(
         canRedo,
         layers,
         addLayer,
+        duplicateLayer,
         removeLayer,
         moveShapeToLayer,
         moveLayerUp,

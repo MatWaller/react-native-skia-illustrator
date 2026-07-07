@@ -243,7 +243,12 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
           },
         ]
       : [];
-  }, [currentShape]);
+    // MW - Key on the stable path inputs, NOT the whole shape object. The
+    // snapshot object identity changes on every React sync (colour change,
+    // undo, drag finalize…), and re-running this memo re-parses every SVG
+    // string into a fresh native Skia path — needless native-heap churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentShape?.pathSegments, currentShape?.pathSvg]);
 
   const customPathMatrix = useDerivedValue(() => {
     if (shapeType !== 'path') return Skia.Matrix();

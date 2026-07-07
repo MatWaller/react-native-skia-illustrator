@@ -23,32 +23,18 @@ export const useUndoRedo = ({
   const redoStack = React.useRef([]);
   const [historySize, setHistorySize] = React.useState({ undo: 0, redo: 0 });
 
-  // MW - Serialise the current canvas state into a plain-JS snapshot.
-  // isFilled is now included so flatten-to-stroke round-trips correctly.
+  // MW - Capture the current canvas state as a snapshot.
+  // Committed stroke entries are IMMUTABLE after commit (the strokes array is
+  // always replaced, never mutated in place), so snapshots hold references to
+  // the existing stroke objects instead of serialising every Skia path to an
+  // SVG string. The old per-push `path.toSVGString()` of ALL strokes made each
+  // snapshot cost O(total ink) — with up to MAX_HISTORY snapshots retained,
+  // long sessions ballooned the Hermes heap until the OS hard-killed the app
+  // mid-gesture (history is pushed on every touch-down on a shape).
   const buildSnapshot = React.useCallback(
     (shapesArray) => ({
       shapes: shapesArray.map((s) => ({ ...s })),
-      strokes: allStrokesRef.current.map(
-        ({
-          path,
-          colour,
-          thickness,
-          isEraser,
-          isFilled,
-          isHighlighter,
-          inputType,
-          pressure,
-        }) => ({
-          pathSVG: path.toSVGString(),
-          colour,
-          thickness,
-          isEraser,
-          isFilled,
-          isHighlighter,
-          inputType,
-          pressure,
-        })
-      ),
+      strokes: allStrokesRef.current.slice(),
       layers: layersRef.current.map((l) => ({ ...l })),
     }),
     [allStrokesRef, layersRef]
@@ -62,29 +48,20 @@ export const useUndoRedo = ({
     setHistorySize({ undo: undoStack.current.length, redo: 0 });
   }, []);
 
-  // MW - Restore a snapshot: rebuild Skia paths, clone shapes, clear selection.
+  // MW - Restore a snapshot: reuse stroke references, clone shapes, clear
+  // selection. Legacy snapshots (pathSVG strings) are still rebuilt for
+  // backward compatibility.
   const restoreSnapshot = React.useCallback(
     (snapshot) => {
-      const restoredStrokes = snapshot.strokes.map(
-        ({
-          pathSVG,
-          colour,
-          thickness,
-          isEraser,
-          isFilled,
-          isHighlighter,
-          inputType,
-          pressure,
-        }) => ({
-          path: Skia.Path.MakeFromSVGString(pathSVG) ?? Skia.Path.Make(),
-          colour,
-          thickness,
-          isEraser,
-          isFilled,
-          isHighlighter,
-          inputType,
-          pressure,
-        })
+      const restoredStrokes = snapshot.strokes.map((stroke) =>
+        stroke.path
+          ? stroke
+          : {
+              ...stroke,
+              path:
+                Skia.Path.MakeFromSVGString(stroke.pathSVG ?? '') ??
+                Skia.Path.Make(),
+            }
       );
       const clonedShapes = snapshot.shapes.map((s) => ({ ...s }));
       shapes.value = clonedShapes;
@@ -112,6 +89,7 @@ export const useUndoRedo = ({
   const undo = React.useCallback(() => {
     if (!undoStack.current.length) return;
     redoStack.current.push(buildSnapshot(shapes.value));
+    if (redoStack.current.length > MAX_HISTORY) redoStack.current.shift();
     restoreSnapshot(undoStack.current.pop());
     setHistorySize({
       undo: undoStack.current.length,
