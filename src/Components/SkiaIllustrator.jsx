@@ -315,6 +315,19 @@ const SkiaIllustrator = React.forwardRef(
       allStrokesRef.current = allStrokesPath;
     }, [allStrokesPath]);
 
+    const setAllStrokes = React.useCallback((updater) => {
+      setAllStrokesPath((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        allStrokesRef.current = next;
+        return next;
+      });
+    }, []);
+
+    const isPaintLikeTool = React.useCallback(
+      (tool) => tool === 'paint' || tool === 'highlighter' || tool === 'eraser',
+      []
+    );
+
     const notifySelectedShapeChange = React.useCallback(
       (shapeId) => {
         onSelectedShapeChange?.(shapeId != null);
@@ -335,7 +348,7 @@ const SkiaIllustrator = React.forwardRef(
       allStrokesRef,
       layersRef,
       setShapeList,
-      setAllStrokesPath,
+      setAllStrokesPath: setAllStrokes,
       setLayers,
       selectedShapeId,
       selectedShapeBounds,
@@ -622,7 +635,7 @@ const SkiaIllustrator = React.forwardRef(
         }
 
         // Commit the eraser/paint stroke.
-        setAllStrokesPath((prev) => [
+        setAllStrokes((prev) => [
           ...prev,
           {
             path,
@@ -655,6 +668,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeBounds,
         selectedShapeRotation,
         selectedShapeStart,
+        setAllStrokes,
         notifySelectedShapeChange,
       ]
     );
@@ -719,12 +733,13 @@ const SkiaIllustrator = React.forwardRef(
 
     const convertAllStrokesToShape = React.useCallback(
       (selectCreated = true) => {
-        if (allStrokesPath.length === 0) {
+        const strokes = allStrokesRef.current;
+        if (strokes.length === 0) {
           return;
         }
 
         const pathShape = buildGroupedPathShape(
-          allStrokesPath,
+          strokes,
           activeLayerIdRef.current
         );
         if (!pathShape) return;
@@ -733,7 +748,7 @@ const SkiaIllustrator = React.forwardRef(
         const next = [...shapes.value, pathShape];
         shapes.value = next;
         setShapeList(next);
-        setAllStrokesPath([]);
+        setAllStrokes([]);
         activeStrokePath.value = '';
         notifyChange(activeStrokePath);
 
@@ -757,8 +772,8 @@ const SkiaIllustrator = React.forwardRef(
         notifyChange(shapes);
       },
       [
-        allStrokesPath,
         activeStrokePath,
+        allStrokesRef,
         buildGroupedPathShape,
         buildSnapshot,
         notifySelectedShapeChange,
@@ -767,6 +782,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeId,
         selectedShapeRotation,
         selectedShapeStart,
+        setAllStrokes,
         shapes,
       ]
     );
@@ -1534,7 +1550,7 @@ const SkiaIllustrator = React.forwardRef(
     const clearCanvas = React.useCallback(() => {
       pushHistory(buildSnapshot(shapes.value));
       shapes.value = [];
-      setAllStrokesPath([]);
+      setAllStrokes([]);
       setShapeList([]);
       selectedShapeId.value = null;
       selectedShapeStart.value = { x: 0, y: 0 };
@@ -1550,6 +1566,7 @@ const SkiaIllustrator = React.forwardRef(
       selectedShapeRotation,
       pushHistory,
       buildSnapshot,
+      setAllStrokes,
       notifySelectedShapeChange,
     ]);
 
@@ -1971,7 +1988,7 @@ const SkiaIllustrator = React.forwardRef(
         const isFilled = !strokeStyleTypes.includes(shape.type);
 
         pushHistory(buildSnapshot(currentShapes));
-        setAllStrokesPath((prev) => [
+        setAllStrokes((prev) => [
           ...prev,
           {
             path: flatPath,
@@ -2001,6 +2018,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeStart,
         pushHistory,
         buildSnapshot,
+        setAllStrokes,
         notifySelectedShapeChange,
       ]
     );
@@ -2166,7 +2184,7 @@ const SkiaIllustrator = React.forwardRef(
         shapes.value = restoredShapes;
         setShapeList(restoredShapes);
         notifyChange(shapes);
-        setAllStrokesPath(restoredStrokes);
+        setAllStrokes(restoredStrokes);
 
         // MW - Clear any active selection and in-progress stroke.
         selectedShapeId.value = null;
@@ -2186,6 +2204,7 @@ const SkiaIllustrator = React.forwardRef(
         activeStrokePath,
         pushHistory,
         buildSnapshot,
+        setAllStrokes,
         notifySelectedShapeChange,
       ]
     );
@@ -2487,11 +2506,10 @@ const SkiaIllustrator = React.forwardRef(
       () => ({
         clearCanvas,
         setCurrentTool: (tool) => {
-          if (
-            ((currentTool === 'paint' && tool !== 'paint') ||
-              (currentTool === 'highlighter' && tool !== 'highlighter')) &&
-            tool !== 'eraser'
-          ) {
+          const leavingPaintLikeTool =
+            isPaintLikeTool(currentTool) && currentTool !== tool;
+
+          if (leavingPaintLikeTool && tool === 'control') {
             // MW - If leaving the paint tool collapse all current paths into a single committed stroke that they can move and resize.
             convertAllStrokesToShape(tool === 'control');
           }
@@ -2675,6 +2693,7 @@ const SkiaIllustrator = React.forwardRef(
         shapes,
         selectedShapeId,
         selectedShapeBounds,
+        isPaintLikeTool,
         clearCanvas,
         setColour,
         setBrushSize,
