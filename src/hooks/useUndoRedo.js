@@ -108,6 +108,21 @@ export const useUndoRedo = ({
     setHistorySize({ undo: 0, redo: 0 });
   }, []);
 
+  const getRetainedStrokePaths = React.useCallback(() => {
+    const paths = [];
+    for (const snapshot of undoStack.current) {
+      for (const stroke of snapshot.strokes) {
+        if (stroke.path) paths.push(stroke.path);
+      }
+    }
+    for (const snapshot of redoStack.current) {
+      for (const stroke of snapshot.strokes) {
+        if (stroke.path) paths.push(stroke.path);
+      }
+    }
+    return paths;
+  }, []);
+
   return {
     buildSnapshot,
     pushHistory,
@@ -116,6 +131,7 @@ export const useUndoRedo = ({
     redo,
     historySize,
     clearHistory,
+    getRetainedStrokePaths,
     canUndo: () => undoStack.current.length > 0,
     canRedo: () => redoStack.current.length > 0,
   };

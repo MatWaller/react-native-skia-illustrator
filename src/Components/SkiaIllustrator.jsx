@@ -48,6 +48,7 @@ import {
   StrokeCap,
   StrokeJoin,
   BlendMode,
+  PathOp,
 } from '@shopify/react-native-skia';
 
 import { ShapeNode, getSharedTypeface, measureText } from './ShapeNode';
@@ -65,12 +66,6 @@ import {
   PAPER_SIZE,
 } from '../utils/shapeUtils';
 
-// MW - Defensively release a native-backed Skia object (Path, Image, Surface,
-// etc.). Skia host objects hold native memory that is NOT tracked by the JS
-// garbage collector, so leaving them un-disposed leaks native heap across
-// mount/unmount cycles — which matters when the host app renders several
-// SkiaIllustrator instances. Guarded so it is a no-op on Skia versions without
-// dispose() and safe against double-dispose.
 const safeDispose = (obj) => {
   try {
     if (obj && typeof obj.dispose === 'function') {
@@ -79,6 +74,75 @@ const safeDispose = (obj) => {
   } catch {
     // Already disposed / not disposable in this Skia version — ignore.
   }
+};
+
+const toSkPath = (maybePath) => {
+  if (!maybePath) return null;
+  if (typeof maybePath === 'string') {
+    return Skia.Path.MakeFromSVGString(maybePath);
+  }
+  return maybePath;
+};
+
+const buildStrokeFillGeometry = (stroke) => {
+  const src = toSkPath(stroke.path);
+  if (!src) return null;
+  if (stroke.isFilled) return src.copy();
+  const copy = src.copy();
+  const strokedCopy = copy.stroke({
+    width: stroke.thickness ?? 8,
+    cap: stroke.isHighlighter ? StrokeCap.Square : StrokeCap.Round,
+    join: stroke.isHighlighter ? StrokeJoin.Miter : StrokeJoin.Round,
+  });
+  return strokedCopy ?? copy;
+};
+
+const eraseFromStrokes = (strokes, eraserFillPath) => {
+  if (!eraserFillPath || strokes.length === 0) return strokes;
+  const eb = eraserFillPath.getBounds();
+  let changed = false;
+  const next = [];
+  for (const stroke of strokes) {
+    const strokePath = toSkPath(stroke.path);
+    if (!strokePath) continue;
+    const bounds = strokePath.getBounds();
+    const overlaps =
+      bounds.x < eb.x + eb.width &&
+      bounds.x + bounds.width > eb.x &&
+      bounds.y < eb.y + eb.height &&
+      bounds.y + bounds.height > eb.y;
+    if (!overlaps) {
+      next.push(stroke);
+      continue;
+    }
+
+    const filledGeometry = buildStrokeFillGeometry(stroke);
+    if (!filledGeometry) {
+      next.push(stroke);
+      continue;
+    }
+
+    const remaining = Skia.Path.MakeFromOp(
+      filledGeometry,
+      eraserFillPath,
+      PathOp.Difference
+    );
+    safeDispose(filledGeometry);
+    changed = true;
+
+    if (!remaining || remaining.isEmpty()) {
+      safeDispose(remaining);
+      continue; // Fully erased — drop the stroke.
+    }
+
+    next.push({
+      ...stroke,
+      path: remaining,
+      isFilled: true,
+      isEraser: false,
+    });
+  }
+  return changed ? next : strokes;
 };
 
 const AUTOSAVE_DEBOUNCE_MS = 750;
@@ -503,20 +567,10 @@ const SkiaIllustrator = React.forwardRef(
       return null;
     }, [imageSource]);
 
-    // MW - Dispose the decoded background bitmap when the source changes or the
-    // component unmounts. MakeImageFromEncoded allocates a full uncompressed
-    // bitmap in native memory (tens of MB for a large image); without this the
-    // previous image leaks on every imageSource change and, critically, every
-    // SkiaIllustrator instance leaks its bitmap on unmount.
     useEffect(() => {
       return () => safeDispose(backgroundImage);
     }, [backgroundImage]);
 
-    // MW - On unmount, drop undo/redo snapshot references. Do NOT manually
-    // dispose Path objects used by declarative <Path> props here: during RN
-    // Modal teardown, Skia's render thread may still read those JSI host
-    // objects after React begins unmounting the JS tree. Disposing them from
-    // JS during teardown can race that read and crash in jsi::Value::getObject.
     useEffect(() => {
       return () => {
         clearHistory();
@@ -550,44 +604,59 @@ const SkiaIllustrator = React.forwardRef(
           strokeHistoryPushedRef.current = true;
         }
 
-        if (isEraser && enableEraseShape) {
-          const eb = path.getBounds();
-          const pad = thickness / 2;
-          const ex = eb.x - pad;
-          const ey = eb.y - pad;
-          const ew = eb.width + thickness;
-          const eh = eb.height + thickness;
+        if (isEraser) {
+          const eraserFillPath =
+            path.copy().stroke({
+              width: thickness,
+              cap: StrokeCap.Round,
+              join: StrokeJoin.Round,
+            }) ?? path.copy();
+          const eb = eraserFillPath.getBounds();
 
-          const currentShapes = shapes.value;
-          const hitIds = [];
-          for (const shape of currentShapes) {
-            const aabb = getShapeAABB(shape);
-            const overlaps =
-              aabb.x < ex + ew &&
-              aabb.x + aabb.width > ex &&
-              aabb.y < ey + eh &&
-              aabb.y + aabb.height > ey;
-            if (overlaps) hitIds.push(shape.id);
-          }
+          if (enableEraseShape) {
+            const currentShapes = shapes.value;
+            const hitIds = [];
+            for (const shape of currentShapes) {
+              const aabb = getShapeAABB(shape);
+              const overlaps =
+                aabb.x < eb.x + eb.width &&
+                aabb.x + aabb.width > eb.x &&
+                aabb.y < eb.y + eb.height &&
+                aabb.y + aabb.height > eb.y;
+              if (overlaps) hitIds.push(shape.id);
+            }
 
-          if (hitIds.length > 0) {
-            const next = currentShapes.filter((s) => !hitIds.includes(s.id));
-            shapes.value = next;
-            setShapeList(next);
-            notifyChange(shapes);
-            // Clear selection if the selected shape was just erased.
-            if (hitIds.includes(selectedShapeId.value)) {
-              selectedShapeId.value = null;
-              selectedShapeBounds.value = null;
-              selectedShapeRotation.value = 0;
-              selectedShapeStart.value = { x: 0, y: 0 };
-              notifyChange(selectedShapeId);
-              notifyChange(selectedShapeBounds);
-              notifyChange(selectedShapeRotation);
-              notifyChange(selectedShapeStart);
-              notifySelectedShapeChange(null);
+            if (hitIds.length > 0) {
+              const next = currentShapes.filter((s) => !hitIds.includes(s.id));
+              shapes.value = next;
+              setShapeList(next);
+              notifyChange(shapes);
+              // Clear selection if the selected shape was just erased.
+              if (hitIds.includes(selectedShapeId.value)) {
+                selectedShapeId.value = null;
+                selectedShapeBounds.value = null;
+                selectedShapeRotation.value = 0;
+                selectedShapeStart.value = { x: 0, y: 0 };
+                notifyChange(selectedShapeId);
+                notifyChange(selectedShapeBounds);
+                notifyChange(selectedShapeRotation);
+                notifyChange(selectedShapeStart);
+                notifySelectedShapeChange(null);
+              }
             }
           }
+
+          setAllStrokes(
+            eraseFromStrokes(allStrokesRef.current, eraserFillPath)
+          );
+          safeDispose(eraserFillPath);
+          safeDispose(path);
+
+          if (!inputInfo?.isChunk) {
+            activeStrokePath.value = '';
+            notifyChange(activeStrokePath);
+          }
+          return;
         }
 
         if (isHighlighter && colour.length === 7 && colour.startsWith('#')) {
@@ -595,7 +664,7 @@ const SkiaIllustrator = React.forwardRef(
           colour = `${colour}80`;
         }
 
-        // Commit the eraser/paint stroke.
+        // Commit the paint/highlighter stroke.
         setAllStrokes((prev) => [
           ...prev,
           {
@@ -631,6 +700,7 @@ const SkiaIllustrator = React.forwardRef(
         selectedShapeRotation,
         selectedShapeStart,
         setAllStrokes,
+        activeStrokePath,
         notifySelectedShapeChange,
       ]
     );
@@ -1282,9 +1352,6 @@ const SkiaIllustrator = React.forwardRef(
       buildSnapshot,
     ]);
 
-    // MW - Duplicate the currently selected shape. The copy is offset slightly
-    // so it doesn't sit invisibly on top of the original, placed at the end of
-    // its layer's render order, and becomes the new selection.
     const duplicateSelectedShape = React.useCallback(() => {
       const shapeId = selectedShapeId.value;
       if (!shapeId) return null;
@@ -1416,13 +1483,6 @@ const SkiaIllustrator = React.forwardRef(
       switch (currentTool) {
         case 'control':
         case 'move':
-          // MW - Single smart tool: drag on a shape moves it; drag on empty
-          // canvas pans the viewport. Pinch always zooms. Rotate always
-          // rotates a selected shape. Always use controlGestures here —
-          // they handle the shape-vs-viewport decision internally via
-          // isPanningViewport. The old selectedShapeId.value branch was
-          // unreliable because useMemo does not track shared-value mutations,
-          // so the viewport pan gestures were disabled on first load.
           return Gesture.Simultaneous(
             controlPanGesture,
             controlPinchGesture,
@@ -1587,10 +1647,6 @@ const SkiaIllustrator = React.forwardRef(
           colour,
         };
 
-        // MW - Reassign a new array (not in-place mutation) so Reanimated
-        // propagates the change to the UI thread and ShapeNode's derived colour
-        // re-evaluates. Mutating shapes.value[i] directly would not update the
-        // UI-thread copy, so the rendered colour would never change.
         const updatedShapes = [...shapes.value];
         updatedShapes[shapeIndex] = updatedShape;
         shapes.value = updatedShapes;
