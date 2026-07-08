@@ -81,6 +81,8 @@ const safeDispose = (obj) => {
   }
 };
 
+const AUTOSAVE_DEBOUNCE_MS = 750;
+
 const SkiaIllustrator = React.forwardRef(
   (
     {
@@ -339,8 +341,67 @@ const SkiaIllustrator = React.forwardRef(
       selectedShapeBounds,
       selectedShapeRotation,
       notifySelectedShapeChange,
-      autoSave
     });
+
+    const autoSaveRef = React.useRef(autoSave);
+    const autoSaveTimerRef = React.useRef(null);
+    const autoSaveInFlightRef = React.useRef(false);
+    const autoSavePendingRef = React.useRef(false);
+    const autoSaveMountedRef = React.useRef(false);
+    const suppressNextAutoSaveRef = React.useRef(false);
+
+    useEffect(() => {
+      autoSaveRef.current = autoSave;
+    }, [autoSave]);
+
+    const scheduleAutoSave = React.useCallback(() => {
+      if (!autoSaveRef.current) return;
+
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+
+      autoSaveTimerRef.current = setTimeout(() => {
+        autoSaveTimerRef.current = null;
+        if (autoSaveInFlightRef.current) {
+          autoSavePendingRef.current = true;
+          return;
+        }
+
+        autoSaveInFlightRef.current = true;
+        Promise.resolve(autoSaveRef.current?.())
+          .catch((error) => {
+            console.error('SkiaIllustrator autosave failed:', error);
+          })
+          .finally(() => {
+            autoSaveInFlightRef.current = false;
+            if (autoSavePendingRef.current) {
+              autoSavePendingRef.current = false;
+              scheduleAutoSave();
+            }
+          });
+      }, AUTOSAVE_DEBOUNCE_MS);
+    }, []);
+
+    useEffect(() => {
+      if (!autoSaveMountedRef.current) {
+        autoSaveMountedRef.current = true;
+        return;
+      }
+      if (suppressNextAutoSaveRef.current) {
+        suppressNextAutoSaveRef.current = false;
+        return;
+      }
+      scheduleAutoSave();
+    }, [allStrokesPath, layers, scheduleAutoSave, shapeList]);
+
+    useEffect(() => {
+      return () => {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+        }
+      };
+    }, []);
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(8);
@@ -721,6 +782,10 @@ const SkiaIllustrator = React.forwardRef(
       [pushHistory, buildSnapshot]
     );
 
+    const onAfterShapeMutation = React.useCallback((shapesSnapshot) => {
+      setShapeList(shapesSnapshot.map((s) => ({ ...s })));
+    }, []);
+
     // MW - Background Image Logic - Set canvas size to image size if image is provided, else use canvasWidth and canvasHeight props.
     useEffect(() => {
       let targetWidth = canvasWidth;
@@ -822,6 +887,7 @@ const SkiaIllustrator = React.forwardRef(
           layerOrder,
           onSelectedShapeChange: notifySelectedShapeChange,
           onBeforeShapeMutation,
+          onAfterShapeMutation,
         }),
       [
         currentTool,
@@ -844,6 +910,7 @@ const SkiaIllustrator = React.forwardRef(
         layerOrder,
         notifySelectedShapeChange,
         onBeforeShapeMutation,
+        onAfterShapeMutation,
       ]
     );
 
@@ -1095,6 +1162,7 @@ const SkiaIllustrator = React.forwardRef(
             layerOrder,
             onSelectedShapeChange: notifySelectedShapeChange,
             onBeforeShapeMutation,
+            onAfterShapeMutation,
           }),
         [
           scale,
@@ -1121,6 +1189,7 @@ const SkiaIllustrator = React.forwardRef(
           layerOrder,
           notifySelectedShapeChange,
           onBeforeShapeMutation,
+          onAfterShapeMutation,
         ]
       );
 
@@ -2069,6 +2138,7 @@ const SkiaIllustrator = React.forwardRef(
         // MW - Snapshot the current state before overwriting so the load is
         // undoable via the undo stack.
         pushHistory(buildSnapshot(shapes.value));
+        suppressNextAutoSaveRef.current = true;
 
         // MW - Reconstruct Skia paths from the stored SVG strings.
         const restoredStrokes = (data.strokes ?? []).map((s) => ({

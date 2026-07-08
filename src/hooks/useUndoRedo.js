@@ -18,7 +18,6 @@ export const useUndoRedo = ({
   selectedShapeBounds,
   selectedShapeRotation,
   notifySelectedShapeChange,
-  autoSave = () => {},
 }) => {
   const undoStack = React.useRef([]);
   const redoStack = React.useRef([]);
@@ -34,16 +33,12 @@ export const useUndoRedo = ({
   );
 
   // MW - Push a snapshot onto the undo stack and clear redo.
-  const pushHistory = React.useCallback(
-    (snapshot) => {
-      undoStack.current.push(snapshot);
-      if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
-      redoStack.current = [];
-      setHistorySize({ undo: undoStack.current.length, redo: 0 });
-      autoSave();
-    },
-    [autoSave]
-  );
+  const pushHistory = React.useCallback((snapshot) => {
+    undoStack.current.push(snapshot);
+    if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
+    redoStack.current = [];
+    setHistorySize({ undo: undoStack.current.length, redo: 0 });
+  }, []);
 
   // MW - Restore a snapshot: reuse stroke references, clone shapes, clear
   // selection. Legacy snapshots (pathSVG strings) are still rebuilt for

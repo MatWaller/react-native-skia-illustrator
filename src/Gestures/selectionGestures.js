@@ -23,6 +23,7 @@ export const createSelectionGestures = ({
   layerOrder,
   onSelectedShapeChange,
   onBeforeShapeMutation = null,
+  onAfterShapeMutation = null,
 }) => {
   const getCanvasPoint = (x, y) => {
     'worklet';
@@ -282,6 +283,12 @@ export const createSelectionGestures = ({
 
       notifyChange(shapes);
       notifyChange(selectedShapeBounds);
+    })
+    .onEnd(() => {
+      'worklet';
+      if (selectedShapeId.value && onAfterShapeMutation) {
+        runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
+      }
     });
   const tapSelectionGesture = Gesture.Tap()
     .enabled(currentTool === 'selection' || currentTool === 'move')
@@ -369,6 +376,9 @@ export const createSelectionGestures = ({
     })
     .onEnd(() => {
       'worklet';
+      if (selectedShapeId.value && onAfterShapeMutation) {
+        runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
+      }
       draggingShape.value = false;
       edgePanX.value = 0;
       edgePanY.value = 0;
@@ -419,8 +429,9 @@ export const createSelectionGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      // Don't clear selection on gesture end - let the context menu handle it
-      // selectedShapeId.value = null;
+      if (selectedShapeId.value && onAfterShapeMutation) {
+        runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
+      }
     });
 
   return {

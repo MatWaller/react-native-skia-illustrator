@@ -31,6 +31,7 @@ export const createControlGestures = ({
   layerOrder,
   onSelectedShapeChange,
   onBeforeShapeMutation = null,
+  onAfterShapeMutation = null,
 }) => {
   const clampTranslations = (x, y, s) => {
     'worklet';
@@ -318,6 +319,8 @@ export const createControlGestures = ({
       if (isPanningViewport.value) {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
+      } else if (selectedShapeId.value && onAfterShapeMutation) {
+        runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
       }
       isPanningViewport.value = false;
       draggingShape.value = false;
@@ -434,7 +437,12 @@ export const createControlGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      if (selectedShapeId.value != null) return;
+      if (selectedShapeId.value != null) {
+        if (onAfterShapeMutation) {
+          runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
+        }
+        return;
+      }
       isPinchActive.value = false;
       savedScale.value = scale.value;
       savedTranslateX.value = translateX.value;
@@ -478,6 +486,12 @@ export const createControlGestures = ({
       notifyChange(shapes);
       notifyChange(selectedShapeBounds);
       notifyChange(selectedShapeRotation);
+    })
+    .onEnd(() => {
+      'worklet';
+      if (selectedShapeId.value && onAfterShapeMutation) {
+        runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
+      }
     });
 
   return {
