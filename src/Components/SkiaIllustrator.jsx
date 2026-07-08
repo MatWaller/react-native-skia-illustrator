@@ -98,6 +98,14 @@ const SkiaIllustrator = React.forwardRef(
       active = true,
       autoSave = null,
       enableEraseShape = false,
+      defaultSettings = {
+        brushSize: 8,
+        fontSize: 32,
+        brushColour: 'black',
+        highlighterColour: 'yellow',
+        shape: 'line',
+        iconName: 'location-dot',
+      },
     },
     ref
   ) => {
@@ -105,9 +113,11 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Tool States
     const [currentTool, setCurrentTool] = React.useState('control');
-    const [currentColour, setCurrentColour] = React.useState('black');
+    const [currentColour, setCurrentColour] = React.useState(
+      defaultSettings.brushColour
+    );
     const [currentHighlighterColour, setCurrentHighlighterColour] =
-      React.useState('black');
+      React.useState(defaultSettings.highlighterColour);
 
     // MW - Notify the parent whenever the active tool changes so they can update the ui.
     useEffect(() => {
@@ -187,7 +197,12 @@ const SkiaIllustrator = React.forwardRef(
     // MW - null = no shape/icon picked in the toolbar yet. While null, a drag in
     // shape mode pans the viewport instead of drag-placing a shape. setShape()/
     // setIcon() set this to a concrete type, which re-enables drag-to-place.
-    const [shapeToolType, setShapeToolType] = useState(null);
+    // Seeded from defaultSettings.shape so shape mode is drag-to-place-ready
+    // immediately, without requiring an initial setShape() call.
+    const [shapeToolType, setShapeToolType] = useState(
+      defaultSettings.shape ?? null
+    );
+
     const [canvasReady, setCanvasReady] = useState(false);
 
     // MW - Drives camera scroll while a shape is dragged to a screen edge. The
@@ -420,10 +435,12 @@ const SkiaIllustrator = React.forwardRef(
     }, []);
 
     // MW - Stroke Settings
-    const activeStrokeThickness = useSharedValue(8);
+    const activeStrokeThickness = useSharedValue(defaultSettings.brushSize);
     const activeStrokePath = useSharedValue('');
-    const activeStrokeColour = useSharedValue('black');
-    const activeHighlighterColour = useSharedValue('black');
+    const activeStrokeColour = useSharedValue(defaultSettings.brushColour);
+    const activeHighlighterColour = useSharedValue(
+      defaultSettings.highlighterColour
+    );
 
     const strokeStartCountRef = React.useRef(0);
     const strokeHistoryPushedRef = React.useRef(false);
@@ -465,7 +482,7 @@ const SkiaIllustrator = React.forwardRef(
     }, [currentColour, currentHighlighterColour, currentTool]);
 
     // MW - Font settings
-    const activeFontSize = useSharedValue(32);
+    const activeFontSize = useSharedValue(defaultSettings.fontSize);
 
     // MW - Load the background image if provided.
     // If we are loading a background image the canvas size will be set to the size of the images - this overides the canvasWidth and canvasHeight props.
