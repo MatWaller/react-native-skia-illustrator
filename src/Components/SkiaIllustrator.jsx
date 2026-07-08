@@ -88,8 +88,8 @@ const SkiaIllustrator = React.forwardRef(
     {
       canvasWidth = PAPER_SIZE.width,
       canvasHeight = PAPER_SIZE.height,
-      _showGrid = true,
-      _showRuler = true,
+      _showGrid = false,
+      _showRuler = false,
       imageSource = null,
       initialData = null,
       onToolChange = null,
@@ -97,6 +97,7 @@ const SkiaIllustrator = React.forwardRef(
       textModalProps = null,
       active = true,
       autoSave = null,
+      enableEraseShape = false,
     },
     ref
   ) => {
@@ -105,6 +106,8 @@ const SkiaIllustrator = React.forwardRef(
     // MW - Tool States
     const [currentTool, setCurrentTool] = React.useState('control');
     const [currentColour, setCurrentColour] = React.useState('black');
+    const [currentHighlighterColour, setCurrentHighlighterColour] =
+      React.useState('black');
 
     // MW - Notify the parent whenever the active tool changes so they can update the ui.
     useEffect(() => {
@@ -420,6 +423,7 @@ const SkiaIllustrator = React.forwardRef(
     const activeStrokeThickness = useSharedValue(8);
     const activeStrokePath = useSharedValue('');
     const activeStrokeColour = useSharedValue('black');
+    const activeHighlighterColour = useSharedValue('black');
 
     const strokeStartCountRef = React.useRef(0);
     const strokeHistoryPushedRef = React.useRef(false);
@@ -446,15 +450,19 @@ const SkiaIllustrator = React.forwardRef(
     }, [allStrokesPath, activeStrokePath]);
 
     const activeStrokeRenderColour = useMemo(() => {
+      const colour =
+        currentTool === 'highlighter'
+          ? currentHighlighterColour
+          : currentColour;
       if (
         currentTool === 'highlighter' &&
-        currentColour.length === 7 &&
-        currentColour.startsWith('#')
+        colour.length === 7 &&
+        colour.startsWith('#')
       ) {
-        return `${currentColour}80`;
+        return `${colour}80`;
       }
-      return currentColour;
-    }, [currentColour, currentTool]);
+      return colour;
+    }, [currentColour, currentHighlighterColour, currentTool]);
 
     // MW - Font settings
     const activeFontSize = useSharedValue(32);
@@ -525,71 +533,7 @@ const SkiaIllustrator = React.forwardRef(
           strokeHistoryPushedRef.current = true;
         }
 
-        // if (pathToShapeEnabled && !isEraser && !isHighlighter) {
-        //   const bounds = path.getBounds();
-        //   const pad = Math.max((thickness ?? 1) / 2, 1);
-        //   const pathBounds = {
-        //     x: bounds.x - pad,
-        //     y: bounds.y - pad,
-        //     width: Math.max(bounds.width + pad * 2, 1),
-        //     height: Math.max(bounds.height + pad * 2, 1),
-        //   };
-        //   const ts = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        //   const pathShape = {
-        //     id: `path-${ts}`,
-        //     type: 'path',
-        //     x: pathBounds.x,
-        //     y: pathBounds.y,
-        //     width: pathBounds.width,
-        //     height: pathBounds.height,
-        //     pathSvg: path.toSVGString(),
-        //     pathBounds,
-        //     colour,
-        //     thickness,
-        //     rotation: 0,
-        //     layer: activeLayerIdRef.current,
-        //     inputType: inputInfo?.isStylus ? 'stylus' : 'touch',
-        //     pressure: inputInfo
-        //       ? {
-        //           start: inputInfo.startPressure ?? 1,
-        //           end: inputInfo.endPressure ?? 1,
-        //         }
-        //       : undefined,
-        //   };
-        //   const next = [...shapes.value, pathShape];
-        //   shapes.value = next;
-        //   setShapeList(next);
-        //   selectedShapeId.value = pathShape.id;
-        //   selectedShapeStart.value = { x: pathShape.x, y: pathShape.y };
-        //   selectedShapeBounds.value = {
-        //     x: pathShape.x,
-        //     y: pathShape.y,
-        //     width: pathShape.width,
-        //     height: pathShape.height,
-        //   };
-        //   selectedShapeRotation.value = 0;
-        //   notifyChange(shapes);
-        //   notifyChange(selectedShapeId);
-        //   notifyChange(selectedShapeBounds);
-        //   notifyChange(selectedShapeRotation);
-        //   notifySelectedShapeChange(pathShape.id);
-
-        //   if (resetTimer.current) clearTimeout(resetTimer.current);
-        //   resetTimer.current = setTimeout(() => {
-        //     activeStrokePath.value = Skia.Path.Make();
-        //     notifyChange(activeStrokePath);
-        //     resetTimer.current = null;
-        //   }, 200);
-        //   return;
-        // }
-
-        // MW - When erasing: any shape/icon/text whose AABB overlaps the
-        // eraser stroke is deleted outright. (Previously overlapping shapes
-        // were flattened into the drawing layer and then partially erased;
-        // dragging the eraser over a shape now simply removes the whole shape.)
-        // The eraser stroke itself is still committed below so it continues to
-        // erase freehand paint strokes.
-        if (isEraser) {
+        if (isEraser && enableEraseShape) {
           const eb = path.getBounds();
           const pad = thickness / 2;
           const ex = eb.x - pad;
@@ -664,6 +608,7 @@ const SkiaIllustrator = React.forwardRef(
         pushHistory,
         buildSnapshot,
         shapes,
+        enableEraseShape,
         selectedShapeId,
         selectedShapeBounds,
         selectedShapeRotation,
@@ -684,12 +629,14 @@ const SkiaIllustrator = React.forwardRef(
         const { path, thickness, isFilled } = stroke;
         if (!path) continue;
 
-        const bounds = path.getBounds();
-        const pad = isFilled ? 0 : Math.max((thickness ?? 1) / 2, 1);
-        minX = Math.min(minX, bounds.x - pad);
-        minY = Math.min(minY, bounds.y - pad);
-        maxX = Math.max(maxX, bounds.x + bounds.width + pad);
-        maxY = Math.max(maxY, bounds.y + bounds.height + pad);
+        if (!stroke.isEraser) {
+          const bounds = path.getBounds();
+          const pad = isFilled ? 0 : Math.max((thickness ?? 1) / 2, 1);
+          minX = Math.min(minX, bounds.x - pad);
+          minY = Math.min(minY, bounds.y - pad);
+          maxX = Math.max(maxX, bounds.x + bounds.width + pad);
+          maxY = Math.max(maxY, bounds.y + bounds.height + pad);
+        }
         pathSegments.push({
           pathSvg: path.toSVGString(),
           colour: stroke.colour ?? 'black',
@@ -703,6 +650,25 @@ const SkiaIllustrator = React.forwardRef(
       }
 
       if (pathSegments.length === 0) return null;
+
+      if (!Number.isFinite(minX)) {
+        for (const segment of pathSegments) {
+          const path = Skia.Path.MakeFromSVGString(segment.pathSvg);
+          try {
+            if (!path) continue;
+            const bounds = path.getBounds();
+            const pad = segment.isFilled
+              ? 0
+              : Math.max((segment.thickness ?? 1) / 2, 1);
+            minX = Math.min(minX, bounds.x - pad);
+            minY = Math.min(minY, bounds.y - pad);
+            maxX = Math.max(maxX, bounds.x + bounds.width + pad);
+            maxY = Math.max(maxY, bounds.y + bounds.height + pad);
+          } finally {
+            safeDispose(path);
+          }
+        }
+      }
 
       const pathBounds = {
         x: minX,
@@ -941,6 +907,7 @@ const SkiaIllustrator = React.forwardRef(
           canvasHeight: resolvedCanvas.height,
           activeStrokePath,
           activeStrokeColour,
+          activeHighlighterColour,
           activeStrokeThickness,
           addPathToAllStrokes,
           onStrokeStart: bumpStrokeStart,
@@ -954,6 +921,7 @@ const SkiaIllustrator = React.forwardRef(
         resolvedCanvas.height,
         activeStrokePath,
         activeStrokeColour,
+        activeHighlighterColour,
         activeStrokeThickness,
         addPathToAllStrokes,
         bumpStrokeStart,
@@ -1410,6 +1378,7 @@ const SkiaIllustrator = React.forwardRef(
       pushHistory,
       buildSnapshot,
       defaultTextRef: defaultTextContentRef,
+      onTextCreated: () => setCurrentTool('control'),
     });
 
     const { placeTextGesture } = useMemo(
@@ -1501,6 +1470,12 @@ const SkiaIllustrator = React.forwardRef(
       }
       const w = selectedShapeBounds.value?.width ?? 0;
       if (w === 0) return 0;
+      if (id) {
+        const shape = shapes.value.find((s) => s.id === id);
+        if (shape?.type === 'icon' || shape?.type === 'text') {
+          return w + SELECTION_OFFSET * 2;
+        }
+      }
       return Math.min(w, maxSelectionWidth) + SELECTION_OFFSET * 2;
     });
     const selectionHeight = useDerivedValue(() => {
@@ -1608,6 +1583,14 @@ const SkiaIllustrator = React.forwardRef(
         notifyChange(shapes);
       },
       [activeStrokeColour, shapes, selectedShapeId, pushHistory, buildSnapshot]
+    );
+
+    const setHighlighterColour = React.useCallback(
+      (colour) => {
+        setCurrentHighlighterColour(colour);
+        activeHighlighterColour.value = colour;
+      },
+      [activeHighlighterColour]
     );
 
     const setBrushSize = React.useCallback(
@@ -1966,63 +1949,6 @@ const SkiaIllustrator = React.forwardRef(
       [shapes, pushHistory, buildSnapshot]
     );
 
-    // MW - Convert a shape to a committed drawing-layer stroke so it can be
-    // painted/erased over. The shape is removed from the selectable list.
-    const flattenShape = React.useCallback(
-      (shapeId) => {
-        const currentShapes = shapes.value;
-        const idx = currentShapes.findIndex((s) => s.id === shapeId);
-        if (idx === -1) return;
-        const shape = currentShapes[idx];
-        if (shape.type === 'text') return; // text can't be meaningfully path-flattened
-
-        let flatPath;
-        if (shape.type === 'circle') {
-          flatPath = Skia.Path.Make();
-          flatPath.addCircle(shape.x, shape.y, shape.radius ?? 10);
-        } else {
-          const svgStr = buildFlattenedPath(shape);
-          flatPath = Skia.Path.MakeFromSVGString(svgStr) ?? Skia.Path.Make();
-        }
-        const strokeStyleTypes = ['line', 'arrow', 'cross', 'check'];
-        const isFilled = !strokeStyleTypes.includes(shape.type);
-
-        pushHistory(buildSnapshot(currentShapes));
-        setAllStrokes((prev) => [
-          ...prev,
-          {
-            path: flatPath,
-            colour: shape.colour ?? 'black',
-            isEraser: false,
-            thickness: 2,
-            isFilled,
-          },
-        ]);
-        const next = currentShapes.filter((s) => s.id !== shapeId);
-        shapes.value = next;
-        setShapeList(next);
-        notifyChange(shapes);
-        if (selectedShapeId.value === shapeId) {
-          selectedShapeId.value = null;
-          selectedShapeBounds.value = null;
-          selectedShapeRotation.value = 0;
-          selectedShapeStart.value = { x: 0, y: 0 };
-          notifySelectedShapeChange(null);
-        }
-      },
-      [
-        shapes,
-        selectedShapeId,
-        selectedShapeBounds,
-        selectedShapeRotation,
-        selectedShapeStart,
-        pushHistory,
-        buildSnapshot,
-        setAllStrokes,
-        notifySelectedShapeChange,
-      ]
-    );
-
     // MW - Move a shape one step backward within its layer.
     // If already at the back, flatten it into the drawing layer.
     const sendShapeBackward = React.useCallback(
@@ -2039,19 +1965,14 @@ const SkiaIllustrator = React.forwardRef(
           }
         }
         if (prevIdx === -1) {
-          if (shapeLayer === 'underlayer') {
-            // Already behind all paint strokes — flatten into the drawing layer.
-            flattenShape(shapeId);
-          } else {
-            // Move to underlayer so the shape renders behind paint strokes.
-            pushHistory(buildSnapshot(currentShapes));
-            const next = currentShapes.map((s) =>
-              s.id === shapeId ? { ...s, layer: 'underlayer' } : s
-            );
-            shapes.value = next;
-            notifyChange(shapes);
-            setShapeList(next);
-          }
+          // Move to underlayer so the shape renders behind paint strokes.
+          pushHistory(buildSnapshot(currentShapes));
+          const next = currentShapes.map((s) =>
+            s.id === shapeId ? { ...s, layer: 'underlayer' } : s
+          );
+          shapes.value = next;
+          notifyChange(shapes);
+          setShapeList(next);
           return;
         }
         pushHistory(buildSnapshot(currentShapes));
@@ -2061,7 +1982,7 @@ const SkiaIllustrator = React.forwardRef(
         setShapeList(next);
         notifyChange(shapes);
       },
-      [shapes, pushHistory, buildSnapshot, flattenShape]
+      [shapes, pushHistory, buildSnapshot]
     );
 
     // MW - Bring a shape to the very front of its layer.
@@ -2408,7 +2329,9 @@ const SkiaIllustrator = React.forwardRef(
 
               if (type === 'text') {
                 const fontSize = shape.fontSize || 32;
-                const font = Skia.Font(getSharedTypeface(), fontSize);
+                const typeface = getSharedTypeface();
+                if (!typeface) return;
+                const font = Skia.Font(typeface, fontSize);
                 paint.setColor(Skia.Color(colour));
                 // MW - Text pivots around its visual centre (x + w/2, y - h/2),
                 // mirroring the ShapeNode origin calculation.
@@ -2509,7 +2432,11 @@ const SkiaIllustrator = React.forwardRef(
           const leavingPaintLikeTool =
             isPaintLikeTool(currentTool) && currentTool !== tool;
 
-          if (leavingPaintLikeTool && tool === 'control') {
+          if (
+            leavingPaintLikeTool &&
+            allStrokesPath.length > 0 &&
+            isPaintLikeTool(tool) === false
+          ) {
             // MW - If leaving the paint tool collapse all current paths into a single committed stroke that they can move and resize.
             convertAllStrokesToShape(tool === 'control');
           }
@@ -2518,6 +2445,8 @@ const SkiaIllustrator = React.forwardRef(
         getCurrentTool: () => currentTool,
         setColour,
         getCurrentColour: () => currentColour,
+        setHighlighterColour,
+        getCurrentHighlighterColour: () => currentHighlighterColour,
         setBrushSize,
         getCurrentBrushSize: () => activeStrokeThickness.value,
         convertAllStrokesToShape,
@@ -2690,12 +2619,15 @@ const SkiaIllustrator = React.forwardRef(
       [
         currentTool,
         currentColour,
+        currentHighlighterColour,
+        allStrokesPath.length,
         shapes,
         selectedShapeId,
         selectedShapeBounds,
         isPaintLikeTool,
         clearCanvas,
         setColour,
+        setHighlighterColour,
         setBrushSize,
         setFontSize,
         convertAllStrokesToShape,

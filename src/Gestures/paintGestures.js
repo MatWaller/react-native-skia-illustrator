@@ -15,6 +15,7 @@ export const createPaintGestures = ({
   canvasHeight,
   activeStrokePath,
   activeStrokeColour,
+  activeHighlighterColour,
   activeStrokeThickness,
   addPathToAllStrokes,
   onStrokeStart,
@@ -109,12 +110,15 @@ export const createPaintGestures = ({
       }
 
       if (activeStrokePath.value.length > MAX_ACTIVE_PATH_LENGTH) {
+        const isHighlighter = currentTool === 'highlighter';
         runOnJS(addPathToAllStrokes)(
           activeStrokePath.value,
-          activeStrokeColour.value,
+          isHighlighter
+            ? activeHighlighterColour.value
+            : activeStrokeColour.value,
           activeStrokeThickness.value,
           currentTool === 'eraser',
-          currentTool === 'highlighter',
+          isHighlighter,
           {
             isChunk: true,
             isStylus: isStylusInput.value,
@@ -141,7 +145,9 @@ export const createPaintGestures = ({
       }
       runOnJS(addPathToAllStrokes)(
         completedPath,
-        activeStrokeColour.value,
+        isHighlighter
+          ? activeHighlighterColour.value
+          : activeStrokeColour.value,
         activeStrokeThickness.value,
         isEraser,
         isHighlighter,

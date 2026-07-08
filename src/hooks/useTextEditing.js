@@ -28,6 +28,7 @@ export const useTextEditing = ({
   pushHistory,
   buildSnapshot,
   defaultTextRef,
+  onTextCreated,
 }) => {
   const [editorVisible, setEditorVisible] = React.useState(false);
   const [editorMode, setEditorMode] = React.useState('create'); // 'create' | 'edit'
@@ -178,6 +179,9 @@ export const useTextEditing = ({
     notifySelectedShapeChange(newShape.id);
 
     closeEditor();
+    if (onTextCreated) {
+      requestAnimationFrame(() => onTextCreated(newShape.id));
+    }
   }, [
     editorValue,
     editorMode,
@@ -190,6 +194,7 @@ export const useTextEditing = ({
     selectedShapeBounds,
     selectedShapeRotation,
     notifySelectedShapeChange,
+    onTextCreated,
     pushHistory,
     buildSnapshot,
     closeEditor,

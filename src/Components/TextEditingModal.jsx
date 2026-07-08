@@ -202,6 +202,7 @@ const TextEditingModal = ({
               returnKeyType={multiline ? 'default' : 'done'}
               blurOnSubmit={!multiline}
               onSubmitEditing={multiline ? undefined : onSubmit}
+              autoFocus={true}
             />
             <View style={[styles.buttonRow, buttonRowStyle]}>
               {cancelLabel ? (
@@ -240,6 +241,7 @@ const TextEditingModal = ({
                   submitButtonStyle,
                   pressed && styles.buttonPressed,
                 ]}
+                disabled={!value || value.trim().length === 0}
                 onPress={onSubmit}
               >
                 <View style={styles.buttonContent}>

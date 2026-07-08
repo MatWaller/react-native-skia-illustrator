@@ -20,10 +20,13 @@ import {
 // The per-shape font (sized from shape.fontSize) is derived on the UI thread.
 let sharedTypeface = null;
 export const getSharedTypeface = () => {
-  if (!sharedTypeface) {
+  if (sharedTypeface === null) {
     const fontMgr = Skia.FontMgr.System();
+    if (!fontMgr) return null;
     const familyName = fontMgr.getFamilyName(0);
-    sharedTypeface = fontMgr.matchFamilyStyle(familyName, {});
+    sharedTypeface = familyName
+      ? fontMgr.matchFamilyStyle(familyName, {})
+      : null;
   }
   return sharedTypeface;
 };
@@ -34,7 +37,11 @@ export const getSharedTypeface = () => {
 // `content.length * fontSize * 0.6` estimate ran wide and pushed the box to the
 // right. Runs on the JS thread (where the cached typeface lives).
 export const measureText = (content, fontSize) => {
-  const font = Skia.Font(getSharedTypeface(), fontSize);
+  const typeface = getSharedTypeface();
+  if (!typeface) {
+    return { width: (content ?? '').length * fontSize * 0.6, height: fontSize };
+  }
+  const font = Skia.Font(typeface, fontSize);
   return { width: font.getTextWidth(content ?? ''), height: fontSize };
 };
 
@@ -102,7 +109,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   // text stayed the same size while the selection box grew/shrank under the
   // gesture.
   const textFont = useDerivedValue(() =>
-    Skia.Font(typeface, fontSize.value || 32)
+    typeface ? Skia.Font(typeface, fontSize.value || 32) : null
   );
 
   const linePath = useDerivedValue(() => {
@@ -337,6 +344,7 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   }
 
   if (shapeType === 'text') {
+    if (!typeface) return null;
     return (
       <Group origin={origin} transform={transform}>
         <Text x={x} y={y} text={textContent} color={colour} font={textFont} />
