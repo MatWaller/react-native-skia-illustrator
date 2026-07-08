@@ -2613,6 +2613,10 @@ const SkiaIllustrator = React.forwardRef(
         setRulerVisible: (visible) => setShowRuler(visible),
         isRulerVisible: () => showRuler,
         toggleRuler: () => setShowRuler((v) => !v),
+        toggleGridAndRuler: () => {
+          setShowGrid((v) => !v);
+          setShowRuler((v) => !v);
+        },
         setRulerUnit: (unit) => setRulerUnit(unit),
         getRulerUnit: () => rulerUnit,
       }),

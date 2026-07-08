@@ -180,7 +180,7 @@ export const useTextEditing = ({
 
     closeEditor();
     if (onTextCreated) {
-      requestAnimationFrame(() => onTextCreated(newShape.id));
+      onTextCreated(newShape.id);
     }
   }, [
     editorValue,
