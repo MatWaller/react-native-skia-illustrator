@@ -94,6 +94,7 @@ const SkiaIllustrator = React.forwardRef(
       onSelectedShapeChange = null,
       textModalProps = null,
       active = true,
+      autoSave = null,
     },
     ref
   ) => {
@@ -338,6 +339,7 @@ const SkiaIllustrator = React.forwardRef(
       selectedShapeBounds,
       selectedShapeRotation,
       notifySelectedShapeChange,
+      autoSave
     });
 
     // MW - Stroke Settings

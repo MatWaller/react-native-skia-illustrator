@@ -168,6 +168,7 @@ function AppContent() {
             onSelectedShapeChange={setHasSelectedShape}
             textModalProps={textModalProps}
             pathToShape={true}
+            autoSave={handleSaveProject}
           />
           <TopHud
             activeMeta={activeMeta}
