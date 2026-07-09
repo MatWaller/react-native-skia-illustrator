@@ -24,6 +24,95 @@ const makeId = (prefix) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
+// MW - 50% alpha so a highlighter reads as translucent instead of opaque ink.
+const withHighlighterAlpha = (colour) =>
+  colour && colour.length === 7 && colour.startsWith('#')
+    ? `${colour}80`
+    : colour;
+
+const distToSegment = (p, a, b) => {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq, 0, 1);
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+};
+
+const isNearPolyline = (point, points, radius) => {
+  if (points.length === 1)
+    return Math.hypot(point.x - points[0].x, point.y - points[0].y) <= radius;
+  for (let i = 1; i < points.length; i += 1) {
+    if (points[i].break) continue;
+    if (distToSegment(point, points[i - 1], points[i]) <= radius) return true;
+  }
+  return false;
+};
+
+// MW - Destructively trims erased ink out of existing strokes instead of
+// storing the eraser stroke forever, which used to make exports/undo grow
+// without bound. Points within the eraser's radius are dropped; surviving
+// runs are kept as subpaths of the same stroke via the existing `break` flag.
+const eraseFromStrokes = (strokes, eraserStroke) => {
+  const eraserPoints = eraserStroke.points ?? [];
+  if (eraserPoints.length === 0 || strokes.length === 0) return strokes;
+  const eraserRadius = (eraserStroke.thickness ?? 8) / 2;
+  const exs = eraserPoints.map((p) => p.x);
+  const eys = eraserPoints.map((p) => p.y);
+  const ebox = {
+    minX: Math.min(...exs) - eraserRadius,
+    maxX: Math.max(...exs) + eraserRadius,
+    minY: Math.min(...eys) - eraserRadius,
+    maxY: Math.max(...eys) + eraserRadius,
+  };
+
+  let changed = false;
+  const next = [];
+  for (const stroke of strokes) {
+    const points = stroke.points ?? [];
+    if (points.length === 0 || stroke.isEraser) {
+      next.push(stroke);
+      continue;
+    }
+    const strokeRadius = (stroke.thickness ?? 8) / 2;
+    const hitRadius = eraserRadius + strokeRadius;
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const overlaps =
+      Math.min(...xs) - strokeRadius <= ebox.maxX &&
+      Math.max(...xs) + strokeRadius >= ebox.minX &&
+      Math.min(...ys) - strokeRadius <= ebox.maxY &&
+      Math.max(...ys) + strokeRadius >= ebox.minY;
+    if (!overlaps) {
+      next.push(stroke);
+      continue;
+    }
+
+    const survivors = [];
+    let removedAny = false;
+    let pendingBreak = false;
+    for (const point of points) {
+      if (isNearPolyline(point, eraserPoints, hitRadius)) {
+        removedAny = true;
+        pendingBreak = true;
+        continue;
+      }
+      survivors.push(
+        pendingBreak && !point.break ? { ...point, break: true } : point
+      );
+      pendingBreak = false;
+    }
+
+    if (!removedAny) {
+      next.push(stroke);
+      continue;
+    }
+    changed = true;
+    if (survivors.length > 0) next.push({ ...stroke, points: survivors });
+  }
+  return changed ? next : strokes;
+};
+
 const isBrowser = () =>
   typeof window !== 'undefined' && typeof document !== 'undefined';
 
@@ -167,8 +256,8 @@ const drawStroke = (ctx, stroke) => {
   ctx.strokeStyle = stroke.colour ?? 'black';
   ctx.fillStyle = stroke.colour ?? 'black';
   ctx.lineWidth = stroke.thickness ?? 8;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.lineCap = stroke.isHighlighter ? 'square' : 'round';
+  ctx.lineJoin = stroke.isHighlighter ? 'miter' : 'round';
 
   if (
     stroke.pathSvg &&
@@ -562,6 +651,16 @@ const SkiaIllustratorWeb = React.forwardRef(
       textModalProps = null,
       style = null,
       className = undefined,
+      active = true,
+      enableEraseShape = false,
+      defaultSettings = {
+        brushSize: 8,
+        fontSize: 32,
+        brushColour: 'black',
+        highlighterColour: 'yellow',
+        shape: 'line',
+        iconName: 'location-dot',
+      },
     },
     ref
   ) => {
@@ -582,10 +681,20 @@ const SkiaIllustratorWeb = React.forwardRef(
       height: canvasHeight,
     });
     const [currentTool, setCurrentToolState] = React.useState('control');
-    const [currentColour, setCurrentColour] = React.useState('black');
-    const [brushSize, setBrushSizeState] = React.useState(8);
-    const [fontSize, setFontSizeState] = React.useState(32);
-    const [shapeToolType, setShapeToolType] = React.useState(null);
+    const [currentColour, setCurrentColour] = React.useState(
+      defaultSettings.brushColour
+    );
+    const [currentHighlighterColour, setCurrentHighlighterColour] =
+      React.useState(defaultSettings.highlighterColour);
+    const [brushSize, setBrushSizeState] = React.useState(
+      defaultSettings.brushSize
+    );
+    const [fontSize, setFontSizeState] = React.useState(
+      defaultSettings.fontSize
+    );
+    const [shapeToolType, setShapeToolType] = React.useState(
+      defaultSettings.shape ?? null
+    );
     const [activeIconData, setActiveIconData] = React.useState(null);
     const [defaultText, setDefaultText] = React.useState('New Text');
     const [transform, setTransform] = React.useState({ scale: 1, x: 0, y: 0 });
@@ -610,6 +719,7 @@ const SkiaIllustratorWeb = React.forwardRef(
     stateRef.current = {
       currentTool,
       currentColour,
+      currentHighlighterColour,
       brushSize,
       fontSize,
       shapeToolType,
@@ -625,6 +735,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       showRuler,
       rulerUnit,
       resolvedCanvas,
+      enableEraseShape,
     };
 
     const selectedShape = React.useMemo(
@@ -649,10 +760,19 @@ const SkiaIllustratorWeb = React.forwardRef(
       onSelectedShapeChange?.(selectedShapeId != null);
     }, [selectedShapeId, onSelectedShapeChange]);
 
+    // MW - Reset transient interaction state when this instance becomes
+    // inactive (e.g. a tabbed host switching to a different illustrator).
+    React.useEffect(() => {
+      if (active) return;
+      pointerRef.current = null;
+      setEditor((prev) => (prev.visible ? { ...prev, visible: false } : prev));
+    }, [active]);
+
     React.useEffect(() => {
       stateRef.current = {
         currentTool,
         currentColour,
+        currentHighlighterColour,
         brushSize,
         fontSize,
         shapeToolType,
@@ -668,10 +788,12 @@ const SkiaIllustratorWeb = React.forwardRef(
         showRuler,
         rulerUnit,
         resolvedCanvas,
+        enableEraseShape,
       };
     }, [
       currentTool,
       currentColour,
+      currentHighlighterColour,
       brushSize,
       fontSize,
       shapeToolType,
@@ -687,6 +809,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       showRuler,
       rulerUnit,
       resolvedCanvas,
+      enableEraseShape,
     ]);
 
     React.useEffect(() => {
@@ -1012,15 +1135,21 @@ const SkiaIllustratorWeb = React.forwardRef(
           resolvedCanvas.height
         );
 
-      layers.forEach((layer) => {
+      // MW - The drawing layer is drawn last so committed/active ink stays
+      // above shapes, icons and text regardless of the layers array order.
+      const orderedLayers = [
+        ...layers.filter((layer) => layer.id !== 'drawing'),
+        ...layers.filter((layer) => layer.id === 'drawing'),
+      ];
+      orderedLayers.forEach((layer) => {
         if (layer.id === 'drawing') {
           const buffer = document.createElement('canvas');
           buffer.width = Math.max(1, Math.ceil(resolvedCanvas.width));
           buffer.height = Math.max(1, Math.ceil(resolvedCanvas.height));
           const bctx = buffer.getContext('2d');
           strokes.forEach((stroke) => drawStroke(bctx, stroke));
-          const active = pointerRef.current?.activeStroke;
-          if (active) drawStroke(bctx, active);
+          const activeStroke = pointerRef.current?.activeStroke;
+          if (activeStroke) drawStroke(bctx, activeStroke);
           ctx.drawImage(buffer, 0, 0);
         } else {
           shapes
@@ -1089,6 +1218,7 @@ const SkiaIllustratorWeb = React.forwardRef(
 
     const onPointerDown = React.useCallback(
       (event) => {
+        if (!active) return;
         if (event.button !== 0) return;
         event.currentTarget.setPointerCapture(event.pointerId);
         const current = stateRef.current;
@@ -1132,9 +1262,11 @@ const SkiaIllustratorWeb = React.forwardRef(
 
         if (
           current.currentTool === 'paint' ||
-          current.currentTool === 'eraser'
+          current.currentTool === 'eraser' ||
+          current.currentTool === 'highlighter'
         ) {
           const onPaper = isOnPaper(point);
+          const isHighlighter = current.currentTool === 'highlighter';
           pointerRef.current = {
             mode: 'stroke',
             wasOnPaper: onPaper,
@@ -1143,9 +1275,12 @@ const SkiaIllustratorWeb = React.forwardRef(
               colour:
                 current.currentTool === 'eraser'
                   ? 'black'
-                  : current.currentColour,
+                  : isHighlighter
+                    ? withHighlighterAlpha(current.currentHighlighterColour)
+                    : current.currentColour,
               thickness: current.brushSize,
               isEraser: current.currentTool === 'eraser',
+              isHighlighter,
             },
           };
           renderCanvas();
@@ -1217,6 +1352,7 @@ const SkiaIllustratorWeb = React.forwardRef(
         };
       },
       [
+        active,
         addShapeAt,
         addTextAt,
         findTopShape,
@@ -1350,39 +1486,51 @@ const SkiaIllustratorWeb = React.forwardRef(
             renderCanvas();
             return;
           }
-          const hitIds = [];
-          if (stroke.isEraser) {
-            const xs = stroke.points.map((p) => p.x);
-            const ys = stroke.points.map((p) => p.y);
-            const box = {
-              x: Math.min(...xs) - stroke.thickness / 2,
-              y: Math.min(...ys) - stroke.thickness / 2,
-              width: Math.max(...xs) - Math.min(...xs) + stroke.thickness,
-              height: Math.max(...ys) - Math.min(...ys) + stroke.thickness,
-            };
-            current.shapes.forEach((shape) => {
-              const aabb = getShapeAABB(shape);
-              if (
-                aabb.x < box.x + box.width &&
-                aabb.x + aabb.width > box.x &&
-                aabb.y < box.y + box.height &&
-                aabb.y + aabb.height > box.y
-              )
-                hitIds.push(shape.id);
-            });
-          }
+
           pushHistory();
-          setStrokes([...current.strokes, cloneStroke(stroke)]);
-          if (hitIds.length) {
-            setShapes(
-              current.shapes.filter((shape) => !hitIds.includes(shape.id))
-            );
-            if (hitIds.includes(current.selectedShapeId))
-              setSelectedShapeId(null);
+
+          if (stroke.isEraser) {
+            if (current.enableEraseShape) {
+              const xs = stroke.points.map((p) => p.x);
+              const ys = stroke.points.map((p) => p.y);
+              const box = {
+                x: Math.min(...xs) - stroke.thickness / 2,
+                y: Math.min(...ys) - stroke.thickness / 2,
+                width: Math.max(...xs) - Math.min(...xs) + stroke.thickness,
+                height: Math.max(...ys) - Math.min(...ys) + stroke.thickness,
+              };
+              const hitIds = [];
+              current.shapes.forEach((shape) => {
+                const aabb = getShapeAABB(shape);
+                if (
+                  aabb.x < box.x + box.width &&
+                  aabb.x + aabb.width > box.x &&
+                  aabb.y < box.y + box.height &&
+                  aabb.y + aabb.height > box.y
+                )
+                  hitIds.push(shape.id);
+              });
+              if (hitIds.length) {
+                setShapes(
+                  current.shapes.filter((shape) => !hitIds.includes(shape.id))
+                );
+                if (hitIds.includes(current.selectedShapeId))
+                  setSelectedShapeId(null);
+              }
+            }
+
+            // MW - Trim the erased ink out of existing strokes instead of
+            // storing the eraser stroke itself forever.
+            setStrokes(eraseFromStrokes(current.strokes, stroke));
+            pointerRef.current = null;
+            return;
           }
+
+          setStrokes([...current.strokes, cloneStroke(stroke)]);
           pointerRef.current = null;
           return;
         }
+
         if (pointer.mode === 'create-shape') {
           const moved =
             Math.hypot(point.x - pointer.start.x, point.y - pointer.start.y) >
@@ -1426,7 +1574,12 @@ const SkiaIllustratorWeb = React.forwardRef(
       ctx.fillRect(0, 0, width, height);
       if (imageRef.current)
         ctx.drawImage(imageRef.current, 0, 0, width, height);
-      stateRef.current.layers.forEach((layer) => {
+      const drawingLayers = stateRef.current.layers;
+      const orderedLayers = [
+        ...drawingLayers.filter((layer) => layer.id !== 'drawing'),
+        ...drawingLayers.filter((layer) => layer.id === 'drawing'),
+      ];
+      orderedLayers.forEach((layer) => {
         if (layer.id === 'drawing')
           stateRef.current.strokes.forEach((stroke) => drawStroke(ctx, stroke));
         else
@@ -1552,6 +1705,11 @@ const SkiaIllustratorWeb = React.forwardRef(
           }
         },
         getCurrentColour: () => stateRef.current.currentColour,
+        setHighlighterColour: (colour) => {
+          setCurrentHighlighterColour(colour);
+        },
+        getCurrentHighlighterColour: () =>
+          stateRef.current.currentHighlighterColour,
         setBrushSize: (size) => {
           setBrushSizeState(size);
           const current = stateRef.current;
