@@ -1,6 +1,6 @@
 {
   "name": "react-native-skia-illustrator",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Skia Illustration Component For Drawing, Editing & Viewing Images.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -13,7 +13,8 @@
     },
     "./web": {
       "react-native-skia-illustrator-source": "./src/web/index.jsx",
-      "types": "./lib/typescript/src/web/index.d.ts"
+      "types": "./lib/typescript/src/web/index.d.ts",
+      "default": "./lib/module/web/index.js"
     },
     "./package.json": "./package.json"
   },

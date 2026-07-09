@@ -10,6 +10,7 @@ const DEFAULT_LAYERS = [
 ];
 
 const STROKE_TYPES = new Set(['line', 'arrow', 'cross', 'check']);
+const PAINT_LIKE_TOOLS = new Set(['paint', 'highlighter', 'eraser']);
 const HANDLE_SIZE = 8;
 const ROTATE_HANDLE_OFFSET = 30;
 const MAX_HISTORY = 50;
@@ -23,6 +24,72 @@ const cloneStroke = (stroke) => ({
 const makeId = (prefix) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const pointsToSvgPath = (points) => {
+  if (!points || points.length === 0) return '';
+  let d = '';
+  points.forEach((p, i) => {
+    d += `${i === 0 || p.break ? 'M' : 'L'}${p.x},${p.y} `;
+  });
+  return d.trim();
+};
+
+const buildGroupedPathShape = (strokes, layerId) => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const pathSegments = [];
+  for (const stroke of strokes) {
+    const points = stroke.points ?? [];
+    if (points.length === 0) continue;
+    if (!stroke.isEraser) {
+      const xs = points.map((p) => p.x);
+      const ys = points.map((p) => p.y);
+      const pad = Math.max((stroke.thickness ?? 1) / 2, 1);
+      minX = Math.min(minX, Math.min(...xs) - pad);
+      minY = Math.min(minY, Math.min(...ys) - pad);
+      maxX = Math.max(maxX, Math.max(...xs) + pad);
+      maxY = Math.max(maxY, Math.max(...ys) + pad);
+    }
+    pathSegments.push({
+      pathSvg: pointsToSvgPath(points),
+      colour: stroke.colour ?? 'black',
+      thickness: stroke.thickness ?? 8,
+      isEraser: !!stroke.isEraser,
+      isFilled: !!stroke.isFilled,
+      isHighlighter: !!stroke.isHighlighter,
+    });
+  }
+  if (pathSegments.length === 0) return null;
+  if (!Number.isFinite(minX)) {
+    minX = 0;
+    minY = 0;
+    maxX = 1;
+    maxY = 1;
+  }
+  const firstVisibleSegment =
+    pathSegments.find((segment) => !segment.isEraser) ?? pathSegments[0];
+  const bounds = {
+    x: minX,
+    y: minY,
+    width: Math.max(maxX - minX, 1),
+    height: Math.max(maxY - minY, 1),
+  };
+
+  return {
+    id: makeId('path'),
+    type: 'path',
+    ...bounds,
+    pathSvg: pathSegments.length === 1 ? pathSegments[0].pathSvg : null,
+    pathSegments,
+    pathBounds: bounds,
+    colour: firstVisibleSegment.colour ?? 'black',
+    thickness: firstVisibleSegment.thickness ?? 8,
+    rotation: 0,
+    layer: layerId,
+  };
+};
 
 // MW - 50% alpha so a highlighter reads as translucent instead of opaque ink.
 const withHighlighterAlpha = (colour) =>
@@ -74,15 +141,13 @@ const eraseFromStrokes = (strokes, eraserStroke) => {
       next.push(stroke);
       continue;
     }
-    const strokeRadius = (stroke.thickness ?? 8) / 2;
-    const hitRadius = eraserRadius + strokeRadius;
     const xs = points.map((p) => p.x);
     const ys = points.map((p) => p.y);
     const overlaps =
-      Math.min(...xs) - strokeRadius <= ebox.maxX &&
-      Math.max(...xs) + strokeRadius >= ebox.minX &&
-      Math.min(...ys) - strokeRadius <= ebox.maxY &&
-      Math.max(...ys) + strokeRadius >= ebox.minY;
+      Math.min(...xs) <= ebox.maxX &&
+      Math.max(...xs) >= ebox.minX &&
+      Math.min(...ys) <= ebox.maxY &&
+      Math.max(...ys) >= ebox.minY;
     if (!overlaps) {
       next.push(stroke);
       continue;
@@ -92,7 +157,7 @@ const eraseFromStrokes = (strokes, eraserStroke) => {
     let removedAny = false;
     let pendingBreak = false;
     for (const point of points) {
-      if (isNearPolyline(point, eraserPoints, hitRadius)) {
+      if (isNearPolyline(point, eraserPoints, eraserRadius)) {
         removedAny = true;
         pendingBreak = true;
         continue;
@@ -329,6 +394,57 @@ const drawShape = (ctx, shape) => {
     ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(shape.content ?? '', shape.x, shape.y);
+    ctx.restore();
+    return;
+  }
+
+  if (shape.type === 'path') {
+    const segments =
+      shape.pathSegments ??
+      (shape.pathSvg
+        ? [
+            {
+              pathSvg: shape.pathSvg,
+              colour: shape.colour,
+              thickness: shape.thickness,
+            },
+          ]
+        : []);
+    if (
+      segments.length > 0 &&
+      typeof window !== 'undefined' &&
+      typeof window.Path2D !== 'undefined'
+    ) {
+      // MW - Path segments are baked at absolute coordinates from the source
+      // pathBounds, so map them into the shape's live x/y/width/height (this
+      // lets the collapsed drawing be moved/resized like any other shape).
+      const bounds = shape.pathBounds ?? {
+        x: shape.x,
+        y: shape.y,
+        width: shape.width || 1,
+        height: shape.height || 1,
+      };
+      ctx.translate(shape.x, shape.y);
+      ctx.scale(
+        (shape.width ?? bounds.width) / (bounds.width || 1),
+        (shape.height ?? bounds.height) / (bounds.height || 1)
+      );
+      ctx.translate(-bounds.x, -bounds.y);
+      segments.forEach((segment) => {
+        if (!segment.pathSvg) return;
+        ctx.save();
+        if (segment.isEraser) ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = segment.colour ?? 'black';
+        ctx.fillStyle = segment.colour ?? 'black';
+        ctx.lineWidth = segment.thickness ?? 8;
+        ctx.lineCap = segment.isHighlighter ? 'square' : 'round';
+        ctx.lineJoin = segment.isHighlighter ? 'miter' : 'round';
+        const path2d = new window.Path2D(segment.pathSvg);
+        if (segment.isFilled) ctx.fill(path2d);
+        else ctx.stroke(path2d);
+        ctx.restore();
+      });
+    }
     ctx.restore();
     return;
   }
@@ -1688,7 +1804,32 @@ const SkiaIllustratorWeb = React.forwardRef(
           setStrokes([]);
           setSelectedShapeId(null);
         },
-        setCurrentTool,
+        setCurrentTool: (tool) => {
+          const current = stateRef.current;
+          const leavingPaintLikeTool =
+            PAINT_LIKE_TOOLS.has(current.currentTool) &&
+            current.currentTool !== tool;
+
+          if (
+            leavingPaintLikeTool &&
+            current.strokes.length > 0 &&
+            !PAINT_LIKE_TOOLS.has(tool)
+          ) {
+            // MW - Leaving a paint-like tool collapses the committed strokes
+            // into a single selectable/movable shape (mirrors native).
+            const pathShape = buildGroupedPathShape(
+              current.strokes,
+              current.activeLayerId
+            );
+            if (pathShape) {
+              pushHistory();
+              setShapes([...current.shapes, pathShape]);
+              setStrokes([]);
+              if (tool === 'control') setSelectedShapeId(pathShape.id);
+            }
+          }
+          setCurrentTool(tool);
+        },
         getCurrentTool: () => stateRef.current.currentTool,
         setColour: (colour) => {
           setCurrentColour(colour);
