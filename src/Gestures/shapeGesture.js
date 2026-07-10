@@ -126,6 +126,7 @@ export const createShapeGestures = ({
         notifyChange(lineAnchor);
 
         shapes.value = [...currentShapes, lineShape];
+        notifyChange(shapes);
         selectedShapeId.value = lineShape.id;
         selectedShapeStart.value = { x: lineShape.x, y: lineShape.y };
         selectedShapeBounds.value = getShapeBounds(lineShape);
@@ -312,6 +313,7 @@ export const createShapeGestures = ({
       }
 
       shapes.value = [...shapes.value, newShape];
+      notifyChange(shapes);
 
       selectedShapeId.value = newShape.id;
       selectedShapeStart.value = { x: newShape.x, y: newShape.y };
@@ -436,6 +438,7 @@ export const createShapeGestures = ({
 
       creatingShapeId.value = id;
       shapes.value = [...shapes.value, newShape];
+      notifyChange(shapes);
       selectedShapeId.value = id;
       selectedShapeStart.value = { x: newShape.x, y: newShape.y };
       selectedShapeRotation.value = 0;
