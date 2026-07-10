@@ -764,6 +764,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       initialData = null,
       onToolChange = null,
       onSelectedShapeChange = null,
+      onSave = null,
       textModalProps = null,
       style = null,
       className = undefined,
@@ -786,6 +787,7 @@ const SkiaIllustratorWeb = React.forwardRef(
     const pointerRef = React.useRef(null);
     const undoRef = React.useRef([]);
     const redoRef = React.useRef([]);
+    const clipboardRef = React.useRef(null);
     const stateRef = React.useRef(null);
 
     const [viewportSize, setViewportSize] = React.useState({
@@ -1335,6 +1337,19 @@ const SkiaIllustratorWeb = React.forwardRef(
     const onPointerDown = React.useCallback(
       (event) => {
         if (!active) return;
+        // MW - Middle-mouse-button drag always pans the viewport, regardless
+        // of the active tool, and takes priority over any tool's own
+        // pointerdown handling so it never conflicts with paint/shape/etc.
+        if (event.button === 1) {
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          pointerRef.current = {
+            mode: 'pan',
+            startClient: { x: event.clientX, y: event.clientY },
+            startTransform: stateRef.current.transform,
+          };
+          return;
+        }
         if (event.button !== 0) return;
         event.currentTarget.setPointerCapture(event.pointerId);
         const current = stateRef.current;
@@ -1667,23 +1682,6 @@ const SkiaIllustratorWeb = React.forwardRef(
       [addShapeAt, pushHistory, renderCanvas, screenToCanvas]
     );
 
-    const onKeyDown = React.useCallback(
-      (event) => {
-        if (event.key === 'Delete' || event.key === 'Backspace') {
-          const current = stateRef.current;
-          if (!current.selectedShapeId) return;
-          pushHistory();
-          setShapes(
-            current.shapes.filter(
-              (shape) => shape.id !== current.selectedShapeId
-            )
-          );
-          setSelectedShapeId(null);
-        }
-      },
-      [pushHistory]
-    );
-
     const drawToContext = React.useCallback((ctx, width, height) => {
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = '#ffffff';
@@ -1793,6 +1791,84 @@ const SkiaIllustratorWeb = React.forwardRef(
         setShapes(next);
       },
       [pushHistory]
+    );
+
+    const onKeyDown = React.useCallback(
+      (event) => {
+        if (event.key === 'Delete' || event.key === 'Backspace') {
+          const current = stateRef.current;
+          if (!current.selectedShapeId) return;
+          pushHistory();
+          setShapes(
+            current.shapes.filter(
+              (shape) => shape.id !== current.selectedShapeId
+            )
+          );
+          setSelectedShapeId(null);
+          return;
+        }
+
+        // MW - Ctrl/Cmd shortcuts. Ignore them while the user is typing in a
+        // text field (e.g. the text-editing modal) so native copy/paste and
+        // undo keep working there instead of being hijacked by the canvas.
+        const isModifier = event.ctrlKey || event.metaKey;
+        if (!isModifier) return;
+        const targetTag = event.target?.tagName;
+        if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return;
+
+        const current = stateRef.current;
+        const key = event.key.toLowerCase();
+
+        if (key === 'c') {
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected) return;
+          event.preventDefault();
+          clipboardRef.current = cloneShape(selected);
+          return;
+        }
+
+        if (key === 'v') {
+          if (!clipboardRef.current) return;
+          event.preventDefault();
+          pushHistory();
+          const duplicate = {
+            ...cloneShape(clipboardRef.current),
+            id: makeId(clipboardRef.current.type ?? 'shape'),
+            x: clipboardRef.current.x + 20,
+            y: clipboardRef.current.y + 20,
+          };
+          setShapes([...current.shapes, duplicate]);
+          setSelectedShapeId(duplicate.id);
+          return;
+        }
+
+        if (key === 'z') {
+          event.preventDefault();
+          undo();
+          return;
+        }
+
+        if (key === 'r') {
+          event.preventDefault();
+          setShowRuler((visible) => !visible);
+          return;
+        }
+
+        if (key === 'g') {
+          event.preventDefault();
+          setShowGrid((visible) => !visible);
+          return;
+        }
+
+        if (key === 's') {
+          event.preventDefault();
+          onSave?.(serializeCanvas());
+          return;
+        }
+      },
+      [pushHistory, undo, serializeCanvas, onSave]
     );
 
     React.useImperativeHandle(

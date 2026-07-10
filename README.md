@@ -111,11 +111,21 @@ Browser interaction notes:
 
 - Mouse drag in `control`, `move`, or `selection` moves selected shapes or pans
   empty canvas space.
+- Holding the middle mouse button (mouse wheel) and dragging always pans the
+  canvas, regardless of the active tool.
 - Mouse wheel zooms around the cursor.
 - Selection handles resize the active shape; the handle above the selection box
   rotates it.
 - Double-click text to edit it. Press Delete/Backspace to remove the selected
   shape.
+- Keyboard shortcuts (work on any tool, disabled while typing in a text
+  field): <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>C</kbd> copies the selected
+  shape, <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>V</kbd> pastes it (offset from
+  the original), <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Z</kbd> undoes,
+  <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>R</kbd> toggles the ruler,
+  <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>G</kbd> toggles the grid, and
+  <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd> calls the `onSave` prop with
+  the serialized canvas (see [Props](#props)).
 
 ---
 
@@ -192,6 +202,7 @@ ref.current.setText('Hello world');
 | `pathToShape` | `boolean` | `false` | Commit paint strokes as selectable, movable, resizable custom path shapes. |
 | `onToolChange` | `(tool: string) => void` | — | Fires when the active tool changes. |
 | `onSelectedShapeChange` | `(hasSelection: boolean) => void` | — | Fires when the selection changes. |
+| `onSave` | `(serializedCanvas: string) => void` | — | **Web only.** Fires when the user presses <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd>, with the same JSON string returned by `serializeCanvas()`. |
 | `textModalProps` | `object \| null` | `null` | Style/label overrides for the text entry modal (see below). |
 
 When rendering inside a host React Native `Modal`, wire `active` to the modal
