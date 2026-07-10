@@ -777,6 +777,7 @@ const SkiaIllustratorWeb = React.forwardRef(
         highlighterColour: 'yellow',
         shape: 'line',
         iconName: 'location-dot',
+        viewPortSize: { width: 800, height: 800 },
       },
     },
     ref
@@ -791,8 +792,8 @@ const SkiaIllustratorWeb = React.forwardRef(
     const stateRef = React.useRef(null);
 
     const [viewportSize, setViewportSize] = React.useState({
-      width: 800,
-      height: 800,
+      width: defaultSettings.viewPortSize?.width ?? 800,
+      height: defaultSettings.viewPortSize?.height ?? 800,
     });
     const [resolvedCanvas, setResolvedCanvas] = React.useState({
       width: canvasWidth,
