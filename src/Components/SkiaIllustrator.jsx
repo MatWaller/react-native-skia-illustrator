@@ -174,7 +174,11 @@ const SkiaIllustrator = React.forwardRef(
     },
     ref
   ) => {
-    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const { width: hookWindowWidth, height: hookWindowHeight } =
+      useWindowDimensions();
+    const [measuredViewport, setMeasuredViewport] = useState(null);
+    const windowWidth = measuredViewport?.width ?? hookWindowWidth;
+    const windowHeight = measuredViewport?.height ?? hookWindowHeight;
 
     // MW - Tool States
     const [currentTool, setCurrentTool] = React.useState(defaultSettings.tool);
@@ -2744,7 +2748,15 @@ const SkiaIllustrator = React.forwardRef(
           <GestureDetector gesture={activeGestures}>
             <View
               style={styles.container}
-              onLayout={() => setCanvasReady(true)}
+              onLayout={(event) => {
+                const { width, height } = event.nativeEvent.layout;
+                setMeasuredViewport((prev) =>
+                  prev && prev.width === width && prev.height === height
+                    ? prev
+                    : { width, height }
+                );
+                setCanvasReady(true);
+              }}
             >
               <Canvas style={canvasStyle}>
                 <Group matrix={viewportMatrix}>

@@ -82,14 +82,25 @@ export const createControlGestures = ({
 
   // -- Hit test helpers (mirrors selectionGestures) --
 
-  const hitTestCircle = (shape, px, py) => {
+
+  const HIT_PADDING_SCREEN_PX = 10;
+  const ICON_HIT_PADDING_SCREEN_PX = 14;
+  const toCanvasPadding = (screenPx) => {
+    'worklet';
+    return screenPx / (scale.value || 1);
+  };
+
+  const hitTestCircle = (shape, px, py, padding = 0) => {
     'worklet';
     const dx = px - shape.x;
     const dy = py - shape.y;
-    return dx * dx + dy * dy <= shape.radius * shape.radius;
+    const r = shape.radius + padding;
+    return dx * dx + dy * dy <= r * r;
   };
 
-  const hitTestRect = (shape, px, py) => {
+  // MW - `padding` grows the hit region beyond the raw bounding box (in
+  // canvas units — callers pass an already screen-to-canvas converted value).
+  const hitTestRect = (shape, px, py, padding = 0) => {
     'worklet';
     const rot = ((shape.rotation ?? 0) * Math.PI) / 180;
     const cx = shape.x + shape.width / 2;
@@ -101,16 +112,15 @@ export const createControlGestures = ({
     const rx = tx * cosA - ty * sinA + cx;
     const ry = tx * sinA + ty * cosA + cy;
     return (
-      rx >= shape.x &&
-      rx <= shape.x + shape.width &&
-      ry >= shape.y &&
-      ry <= shape.y + shape.height
+      rx >= shape.x - padding &&
+      rx <= shape.x + shape.width + padding &&
+      ry >= shape.y - padding &&
+      ry <= shape.y + shape.height + padding
     );
   };
 
-  const hitTestLine = (shape, px, py) => {
+  const hitTestLine = (shape, px, py, padding = 0) => {
     'worklet';
-    const padding = 10;
     const w = shape.width ?? 0;
     const h = shape.height ?? 0;
     // MW - Lines can be drawn in any direction (signed width/height), so
@@ -136,7 +146,7 @@ export const createControlGestures = ({
     );
   };
 
-  const hitTestText = (shape, px, py) => {
+  const hitTestText = (shape, px, py, padding = 0) => {
     'worklet';
     const w = shape.width ?? 0;
     const h = shape.height ?? shape.fontSize ?? 32;
@@ -150,16 +160,22 @@ export const createControlGestures = ({
     const rx = tx * cosA - ty * sinA + cx;
     const ry = tx * sinA + ty * cosA + cy;
     return (
-      rx >= shape.x && rx <= shape.x + w && ry >= shape.y - h && ry <= shape.y
+      rx >= shape.x - padding &&
+      rx <= shape.x + w + padding &&
+      ry >= shape.y - h - padding &&
+      ry <= shape.y + padding
     );
   };
 
   const hitTestShape = (shape, px, py) => {
     'worklet';
-    if (shape.type === 'circle') return hitTestCircle(shape, px, py);
-    if (shape.type === 'text') return hitTestText(shape, px, py);
-    if (shape.type === 'line') return hitTestLine(shape, px, py);
-    return hitTestRect(shape, px, py);
+    const padding = toCanvasPadding(
+      shape.type === 'icon' ? ICON_HIT_PADDING_SCREEN_PX : HIT_PADDING_SCREEN_PX
+    );
+    if (shape.type === 'circle') return hitTestCircle(shape, px, py, padding);
+    if (shape.type === 'text') return hitTestText(shape, px, py, padding);
+    if (shape.type === 'line') return hitTestLine(shape, px, py, padding);
+    return hitTestRect(shape, px, py, padding);
   };
 
   const renderRankOf = (shape, arrayIndex) => {

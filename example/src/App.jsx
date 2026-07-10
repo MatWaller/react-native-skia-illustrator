@@ -169,6 +169,15 @@ function AppContent() {
             textModalProps={textModalProps}
             pathToShape={true}
             autoSave={handleSaveProject}
+            defaultSettings={{
+              tool: 'paint',
+              shape: 'line',
+              brushSize: 8,
+              fontSize: 32,
+              brushColour: 'black',
+              highlighterColour: 'yellow',
+              iconName: 'location-dot',
+            }}
           />
           <TopHud
             activeMeta={activeMeta}
