@@ -792,7 +792,7 @@ const SkiaIllustratorWeb = React.forwardRef(
 
     const [viewportSize, setViewportSize] = React.useState({
       width: 800,
-      height: 600,
+      height: 800,
     });
     const [resolvedCanvas, setResolvedCanvas] = React.useState({
       width: canvasWidth,
