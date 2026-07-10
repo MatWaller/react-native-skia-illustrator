@@ -163,11 +163,12 @@ const SkiaIllustrator = React.forwardRef(
       autoSave = null,
       enableEraseShape = false,
       defaultSettings = {
+        tool: 'paint',
+        shape: 'line',
         brushSize: 8,
         fontSize: 32,
         brushColour: 'black',
         highlighterColour: 'yellow',
-        shape: 'line',
         iconName: 'location-dot',
       },
     },
@@ -176,7 +177,7 @@ const SkiaIllustrator = React.forwardRef(
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
     // MW - Tool States
-    const [currentTool, setCurrentTool] = React.useState('control');
+    const [currentTool, setCurrentTool] = React.useState(defaultSettings.tool);
     const [currentColour, setCurrentColour] = React.useState(
       defaultSettings.brushColour
     );
@@ -240,7 +241,6 @@ const SkiaIllustrator = React.forwardRef(
       radius: 0,
       fontSize: 0,
     });
-    const mountedShapeIds = useSharedValue([]);
 
     // MW - Paint states.
     const shapes = useSharedValue([]);
@@ -383,10 +383,6 @@ const SkiaIllustrator = React.forwardRef(
     useEffect(() => {
       layerOrder.value = layers.map((l) => l.id);
     }, [layers, layerOrder]);
-
-    useLayoutEffect(() => {
-      mountedShapeIds.value = shapeList.map((s) => s.id);
-    }, [shapeList, mountedShapeIds]);
 
     const [allStrokesPath, setAllStrokesPath] = useState([]);
 
@@ -1542,22 +1538,21 @@ const SkiaIllustrator = React.forwardRef(
     );
     const selectionWidth = useDerivedValue(() => {
       const id = selectedShapeId.value;
-      if (id && mountedShapeIds.value.findIndex((mid) => mid === id) === -1) {
+      const shape = id ? shapes.value.find((s) => s.id === id) : null;
+
+      if (id && !shape) {
         return 0;
       }
       const w = selectedShapeBounds.value?.width ?? 0;
       if (w === 0) return 0;
-      if (id) {
-        const shape = shapes.value.find((s) => s.id === id);
-        if (shape?.type === 'icon' || shape?.type === 'text') {
-          return w + SELECTION_OFFSET * 2;
-        }
+      if (shape?.type === 'icon' || shape?.type === 'text') {
+        return w + SELECTION_OFFSET * 2;
       }
       return Math.min(w, maxSelectionWidth) + SELECTION_OFFSET * 2;
     });
     const selectionHeight = useDerivedValue(() => {
       const id = selectedShapeId.value;
-      if (id && mountedShapeIds.value.findIndex((mid) => mid === id) === -1) {
+      if (id && !shapes.value.find((s) => s.id === id)) {
         return 0;
       }
       const h = selectedShapeBounds.value?.height ?? 0;
