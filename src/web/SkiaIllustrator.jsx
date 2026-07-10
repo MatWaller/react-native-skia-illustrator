@@ -1808,6 +1808,31 @@ const SkiaIllustratorWeb = React.forwardRef(
           return;
         }
 
+        // Move selected with arrows
+        if (event.key.startsWith('Arrow')) {
+          const current = stateRef.current;
+          if (!current.selectedShapeId) return;
+          pushHistory();
+          const delta = event.shiftKey ? 10 : 1;
+          const next = current.shapes.map((shape) => {
+            if (shape.id !== current.selectedShapeId) return shape;
+            switch (event.key) {
+              case 'ArrowUp':
+                return { ...shape, y: shape.y - delta };
+              case 'ArrowDown':
+                return { ...shape, y: shape.y + delta };
+              case 'ArrowLeft':
+                return { ...shape, x: shape.x - delta };
+              case 'ArrowRight':
+                return { ...shape, x: shape.x + delta };
+              default:
+                return shape;
+            }
+          });
+          setShapes(next);
+          return;
+        }
+
         // MW - Ctrl/Cmd shortcuts. Ignore them while the user is typing in a
         // text field (e.g. the text-editing modal) so native copy/paste and
         // undo keep working there instead of being hijacked by the canvas.
