@@ -758,8 +758,6 @@ const SkiaIllustratorWeb = React.forwardRef(
     {
       canvasWidth = PAPER_SIZE.width,
       canvasHeight = PAPER_SIZE.height,
-      _showGrid = true,
-      _showRuler = true,
       imageSource = null,
       initialData = null,
       onToolChange = null,
@@ -778,6 +776,8 @@ const SkiaIllustratorWeb = React.forwardRef(
         highlighterColour: 'yellow',
         shape: 'line',
         iconName: 'location-dot',
+        showRuler: false,
+        showGrid: false,
         viewPortSize: { width: 800, height: 800 },
       },
     },
@@ -825,8 +825,12 @@ const SkiaIllustratorWeb = React.forwardRef(
     const [layers, setLayers] = React.useState(DEFAULT_LAYERS.map(cloneLayer));
     const [activeLayerId, setActiveLayerId] = React.useState('shapes');
     const [selectedShapeId, setSelectedShapeId] = React.useState(null);
-    const [showGrid, setShowGrid] = React.useState(_showGrid);
-    const [showRuler, setShowRuler] = React.useState(_showRuler);
+    const [showGrid, setShowGrid] = React.useState(
+      defaultSettings.showGrid ?? false
+    );
+    const [showRuler, setShowRuler] = React.useState(
+      defaultSettings.showRuler ?? false
+    );
     const [rulerUnit, setRulerUnit] = React.useState('px');
     const [editor, setEditor] = React.useState({
       visible: false,
