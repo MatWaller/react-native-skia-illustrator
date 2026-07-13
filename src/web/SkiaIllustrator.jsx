@@ -1143,10 +1143,11 @@ const SkiaIllustratorWeb = React.forwardRef(
           rotation: 0,
         };
         setShapes([...current.shapes, shape]);
+        setCurrentTool('control');
         setSelectedShapeId(shape.id);
       }
       setEditor((prev) => ({ ...prev, visible: false }));
-    }, [editor, pushHistory]);
+    }, [editor, pushHistory, setCurrentTool]);
 
     const addShapeAt = React.useCallback(
       (type, start, end = null) => {
