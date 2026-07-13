@@ -771,6 +771,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       active = true,
       enableEraseShape = false,
       defaultSettings = {
+        tool: 'pen',
         brushSize: 8,
         fontSize: 32,
         brushColour: 'black',
@@ -799,7 +800,9 @@ const SkiaIllustratorWeb = React.forwardRef(
       width: canvasWidth,
       height: canvasHeight,
     });
-    const [currentTool, setCurrentToolState] = React.useState('control');
+    const [currentTool, setCurrentToolState] = React.useState(
+      defaultSettings.tool
+    );
     const [currentColour, setCurrentColour] = React.useState(
       defaultSettings.brushColour
     );
@@ -1203,6 +1206,10 @@ const SkiaIllustratorWeb = React.forwardRef(
         pushHistory();
         setShapes([...current.shapes, normalizeShape(shape)]);
         setSelectedShapeId(id);
+
+        console.log(
+          `Added shape ${id} of type ${type} at (${start.x}, ${start.y})`
+        );
       },
       [pushHistory]
     );
@@ -1796,49 +1803,46 @@ const SkiaIllustratorWeb = React.forwardRef(
 
     const onKeyDown = React.useCallback(
       (event) => {
-        if (event.key === 'Delete' || event.key === 'Backspace') {
-          const current = stateRef.current;
-          if (!current.selectedShapeId) return;
-          pushHistory();
-          setShapes(
-            current.shapes.filter(
-              (shape) => shape.id !== current.selectedShapeId
-            )
-          );
-          setSelectedShapeId(null);
-          return;
-        }
-
-        // Move selected with arrows
-        if (event.key.startsWith('Arrow')) {
-          const current = stateRef.current;
-          if (!current.selectedShapeId) return;
-          pushHistory();
-          const delta = event.shiftKey ? 10 : 1;
-          const next = current.shapes.map((shape) => {
-            if (shape.id !== current.selectedShapeId) return shape;
-            switch (event.key) {
-              case 'ArrowUp':
-                return { ...shape, y: shape.y - delta };
-              case 'ArrowDown':
-                return { ...shape, y: shape.y + delta };
-              case 'ArrowLeft':
-                return { ...shape, x: shape.x - delta };
-              case 'ArrowRight':
-                return { ...shape, x: shape.x + delta };
-              default:
-                return shape;
-            }
-          });
-          setShapes(next);
-          return;
-        }
-
-        // MW - Ctrl/Cmd shortcuts. Ignore them while the user is typing in a
-        // text field (e.g. the text-editing modal) so native copy/paste and
-        // undo keep working there instead of being hijacked by the canvas.
         const isModifier = event.ctrlKey || event.metaKey;
-        if (!isModifier) return;
+        if (!isModifier) {
+          if (event.key === 'Delete' || event.key === 'Backspace') {
+            const current = stateRef.current;
+            if (!current.selectedShapeId) return;
+            pushHistory();
+            setShapes(
+              current.shapes.filter(
+                (shape) => shape.id !== current.selectedShapeId
+              )
+            );
+            setSelectedShapeId(null);
+            return;
+          }
+          if (event.key.startsWith('Arrow')) {
+            const current = stateRef.current;
+            if (!current.selectedShapeId) return;
+            pushHistory();
+            const delta = event.shiftKey ? 10 : 1;
+            const next = current.shapes.map((shape) => {
+              if (shape.id !== current.selectedShapeId) return shape;
+              switch (event.key) {
+                case 'ArrowUp':
+                  return { ...shape, y: shape.y - delta };
+                case 'ArrowDown':
+                  return { ...shape, y: shape.y + delta };
+                case 'ArrowLeft':
+                  return { ...shape, x: shape.x - delta };
+                case 'ArrowRight':
+                  return { ...shape, x: shape.x + delta };
+                default:
+                  return shape;
+              }
+            });
+            setShapes(next);
+            return;
+          }
+          return;
+        }
+
         const targetTag = event.target?.tagName;
         if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return;
 
