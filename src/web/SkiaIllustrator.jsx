@@ -1206,12 +1206,9 @@ const SkiaIllustratorWeb = React.forwardRef(
         pushHistory();
         setShapes([...current.shapes, normalizeShape(shape)]);
         setSelectedShapeId(id);
-
-        console.log(
-          `Added shape ${id} of type ${type} at (${start.x}, ${start.y})`
-        );
+        setCurrentTool('control');
       },
-      [pushHistory]
+      [pushHistory, setCurrentTool]
     );
 
     const renderCanvas = React.useCallback(() => {
