@@ -62,7 +62,6 @@ export const createSelectionGestures = ({
     edgePanY.value = evy;
   };
 
-
   const HIT_PADDING_SCREEN_PX = 10;
   const ICON_HIT_PADDING_SCREEN_PX = 14;
   const toCanvasPadding = (screenPx) => {
