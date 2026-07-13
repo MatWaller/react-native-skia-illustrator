@@ -1819,6 +1819,7 @@ const SkiaIllustratorWeb = React.forwardRef(
             setSelectedShapeId(null);
             return;
           }
+
           if (event.key.startsWith('Arrow')) {
             const current = stateRef.current;
             if (!current.selectedShapeId) return;
@@ -1842,6 +1843,31 @@ const SkiaIllustratorWeb = React.forwardRef(
             setShapes(next);
             return;
           }
+
+          if (event.key === 'c') {
+            setCurrentTool('control');
+          }
+
+          if (event.key === 'p') {
+            setCurrentTool('paint');
+          }
+
+          if (event.key === 'h') {
+            setCurrentTool('highlighter');
+          }
+
+          if (event.key === 't') {
+            setCurrentTool('text');
+          }
+
+          if (event.key === 'l') {
+            setCurrentTool('line');
+          }
+
+          if (event.key === 'i') {
+            setCurrentTool('shape');
+          }
+
           return;
         }
 
@@ -1878,7 +1904,8 @@ const SkiaIllustratorWeb = React.forwardRef(
 
         if (key === 'z') {
           event.preventDefault();
-          undo();
+          if (event.shiftKey) redo();
+          else undo();
           return;
         }
 
@@ -1896,11 +1923,11 @@ const SkiaIllustratorWeb = React.forwardRef(
 
         if (key === 's') {
           event.preventDefault();
-          onSave?.(serializeCanvas());
+          onSave?.();
           return;
         }
       },
-      [pushHistory, undo, serializeCanvas, onSave]
+      [pushHistory, undo, redo, onSave]
     );
 
     React.useImperativeHandle(
