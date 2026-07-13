@@ -1868,6 +1868,10 @@ const SkiaIllustratorWeb = React.forwardRef(
             setCurrentTool('shape');
           }
 
+          if (event.key === 'e') {
+            setCurrentTool('eraser');
+          }
+
           return;
         }
 
