@@ -1072,7 +1072,12 @@ const SkiaIllustratorWeb = React.forwardRef(
 
     const submitEditor = React.useCallback(() => {
       const current = stateRef.current;
-      const value = editor.value || ' ';
+      const value = editor.value || null;
+
+      if (value == null || value.trim() === '') {
+        return;
+      }
+
       pushHistory();
       if (editor.mode === 'edit' && editor.shapeId) {
         const next = current.shapes.map((shape) => {
@@ -2513,6 +2518,7 @@ const SkiaIllustratorWeb = React.forwardRef(
           onSubmit={submitEditor}
           onCancel={() => setEditor((prev) => ({ ...prev, visible: false }))}
           props={textModalProps}
+          autoFocus={true}
         />
         <span style={webStyles.historyStatus} aria-hidden="true">
           {historySize.undo}:{historySize.redo}
