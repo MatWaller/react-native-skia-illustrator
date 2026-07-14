@@ -118,12 +118,19 @@ Browser interaction notes:
   rotates it.
 - Double-click text to edit it. Press Delete/Backspace to remove the selected
   shape.
+- A subtle brush-size outline follows the cursor while the paint, highlighter
+  or eraser tool is active, so you can see exactly what area a stroke will
+  cover before you click.
+- Single-key shortcuts (disabled while typing in a text field) switch tools
+  directly: <kbd>C</kbd> control, <kbd>P</kbd> paint, <kbd>H</kbd> highlighter,
+  <kbd>T</kbd> text, <kbd>L</kbd> line, <kbd>I</kbd> shape, <kbd>E</kbd> eraser.
 - Keyboard shortcuts (work on any tool, disabled while typing in a text
   field): <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>C</kbd> copies the selected
   shape, <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>V</kbd> pastes it (offset from
   the original), <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Z</kbd> undoes,
   <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>R</kbd> toggles the ruler,
-  <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>G</kbd> toggles the grid, and
+  <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>G</kbd> toggles the grid,
+  <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>N</kbd> clears the canvas, and
   <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd> calls the `onSave` prop with
   the serialized canvas (see [Props](#props)).
 
@@ -276,6 +283,11 @@ Available `textModalProps`:
 | `clearSelection()` | Deselect. |
 | `deleteSelectedShape()` | Delete the selected shape. |
 | `closeKeyboard()` | Dismiss the text modal/keyboard. |
+| `getSelectedType()` | Type of the selected shape (e.g. `'text'`, `'circle'`, `'icon'`), or `null` if nothing is selected. |
+| `getSelectedPosition()` / `setSelectedPosition({ x, y })` | Get/set the selected shape's top-left position. |
+| `getSelectedSize()` / `setSelectedSize({ width, height })` | Get/set the selected shape's size. |
+| `getColourOfSelected()` / `setColourForSelected(colour)` | Get/set colour of the selected shape — only applies to `text`, `icon` and `line` shapes; no-ops otherwise. |
+| `setTextForSelected()` | Opens the text edit modal for the selected text shape. |
 
 ### Layers & z-order
 

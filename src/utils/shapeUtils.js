@@ -4,6 +4,28 @@ export const getShapeLayer = (shape) => {
   return shape.type === 'text' ? 'text' : 'shapes';
 };
 
+// MW - Unrotated bounds in the shape's own local space (top-left x/y +
+// width/height), used for get/set position & size APIs and resize handles.
+export const getUnrotatedShapeBounds = (shape) => {
+  if (!shape) return null;
+  if (shape.type === 'circle') {
+    const r = shape.radius ?? 10;
+    return { x: shape.x - r, y: shape.y - r, width: r * 2, height: r * 2 };
+  }
+  if (shape.type === 'text') {
+    const h = shape.height ?? shape.fontSize ?? 32;
+    return { x: shape.x, y: shape.y - h, width: shape.width ?? 0, height: h };
+  }
+  const w = shape.width ?? 0;
+  const h = shape.height ?? 0;
+  return {
+    x: w < 0 ? shape.x + w : shape.x,
+    y: h < 0 ? shape.y + h : shape.y,
+    width: Math.abs(w),
+    height: Math.abs(h),
+  };
+};
+
 // MW - Axis-aligned bounding box for any shape, used for eraser hit testing.
 export const getShapeAABB = (shape) => {
   const { x, y, type, rotation = 0 } = shape;

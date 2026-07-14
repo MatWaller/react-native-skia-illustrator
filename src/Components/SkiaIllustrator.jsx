@@ -62,9 +62,12 @@ import { useTextEditing } from '../hooks/useTextEditing';
 import {
   getShapeLayer,
   getShapeAABB,
+  getUnrotatedShapeBounds,
   buildFlattenedPath,
   PAPER_SIZE,
 } from '../utils/shapeUtils';
+
+const COLOURABLE_TYPES = new Set(['text', 'icon', 'line']);
 
 const safeDispose = (obj) => {
   try {
@@ -1442,6 +1445,7 @@ const SkiaIllustrator = React.forwardRef(
       editorMode,
       editorValue,
       addText,
+      startTextEdit,
       onEditorChange,
       submitEditor,
       cancelEditor,
@@ -2533,6 +2537,117 @@ const SkiaIllustrator = React.forwardRef(
         deletedSelectedShape,
         duplicateSelectedShape,
         hasSelectedShape: () => selectedShapeId.value != null,
+        getSelectedType: () => {
+          const shapeId = selectedShapeId.value;
+          const shape = shapes.value.find((s) => s.id === shapeId);
+          return shape?.type ?? null;
+        },
+        getSelectedPosition: () => {
+          const shapeId = selectedShapeId.value;
+          const shape = shapes.value.find((s) => s.id === shapeId);
+          if (!shape) return null;
+          const b = getUnrotatedShapeBounds(shape);
+          return { x: b.x, y: b.y };
+        },
+        setSelectedPosition: ({ x, y } = {}) => {
+          const shapeId = selectedShapeId.value;
+          const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+          if (shapeIndex === -1 || x == null || y == null) return;
+          const shape = shapes.value[shapeIndex];
+          const b = getUnrotatedShapeBounds(shape);
+          const dx = x - b.x;
+          const dy = y - b.y;
+
+          pushHistory(buildSnapshot(shapes.value));
+          const updatedShape = { ...shape, x: shape.x + dx, y: shape.y + dy };
+          const updatedShapes = [...shapes.value];
+          updatedShapes[shapeIndex] = updatedShape;
+          shapes.value = updatedShapes;
+          setShapeList(updatedShapes);
+          notifyChange(shapes);
+
+          if (selectedShapeId.value === updatedShape.id) {
+            selectedShapeBounds.value = getUnrotatedShapeBounds(updatedShape);
+            notifyChange(selectedShapeBounds);
+          }
+        },
+        getSelectedSize: () => {
+          const shapeId = selectedShapeId.value;
+          const shape = shapes.value.find((s) => s.id === shapeId);
+          if (!shape) return null;
+          const b = getUnrotatedShapeBounds(shape);
+          return { width: b.width, height: b.height };
+        },
+        setSelectedSize: ({ width, height } = {}) => {
+          const shapeId = selectedShapeId.value;
+          const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+          if (shapeIndex === -1 || width == null || height == null) return;
+          const shape = shapes.value[shapeIndex];
+          const b = getUnrotatedShapeBounds(shape);
+          const nw = Math.max(1, width);
+          const nh = Math.max(1, height);
+
+          pushHistory(buildSnapshot(shapes.value));
+          let updatedShape;
+          if (shape.type === 'circle') {
+            updatedShape = {
+              ...shape,
+              x: b.x + nw / 2,
+              y: b.y + nh / 2,
+              radius: Math.min(nw, nh) / 2,
+            };
+          } else if (shape.type === 'text') {
+            const { width: tw, height: th } = measureText(
+              shape.content ?? '',
+              nh
+            );
+            updatedShape = {
+              ...shape,
+              x: b.x,
+              y: b.y + th,
+              width: tw,
+              height: th,
+              fontSize: nh,
+            };
+          } else {
+            updatedShape = { ...shape, x: b.x, y: b.y, width: nw, height: nh };
+          }
+
+          const updatedShapes = [...shapes.value];
+          updatedShapes[shapeIndex] = updatedShape;
+          shapes.value = updatedShapes;
+          setShapeList(updatedShapes);
+          notifyChange(shapes);
+
+          if (selectedShapeId.value === updatedShape.id) {
+            selectedShapeBounds.value = getUnrotatedShapeBounds(updatedShape);
+            notifyChange(selectedShapeBounds);
+          }
+        },
+        getColourOfSelected: () => {
+          const shapeId = selectedShapeId.value;
+          const shape = shapes.value.find((s) => s.id === shapeId);
+          if (!shape || !COLOURABLE_TYPES.has(shape.type)) return null;
+          return shape.colour ?? null;
+        },
+        setColourForSelected: (colour) => {
+          const shapeId = selectedShapeId.value;
+          const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+          if (shapeIndex === -1) return;
+          const shape = shapes.value[shapeIndex];
+          if (!COLOURABLE_TYPES.has(shape.type)) return;
+
+          pushHistory(buildSnapshot(shapes.value));
+          const updatedShapes = [...shapes.value];
+          updatedShapes[shapeIndex] = { ...shape, colour };
+          shapes.value = updatedShapes;
+          setShapeList(updatedShapes);
+          notifyChange(shapes);
+        },
+        setTextForSelected: () => {
+          const shapeId = selectedShapeId.value;
+          if (shapeId) startTextEdit(shapeId);
+        },
         setShape: (type) => {
           setShapeToolType(type);
           // MW - If a shape is already selected and we're in shape mode, morph
@@ -2700,6 +2815,7 @@ const SkiaIllustrator = React.forwardRef(
         shapes,
         selectedShapeId,
         selectedShapeBounds,
+        startTextEdit,
         isPaintLikeTool,
         clearCanvas,
         setColour,

@@ -11,6 +11,7 @@ const DEFAULT_LAYERS = [
 
 const STROKE_TYPES = new Set(['line', 'arrow', 'cross', 'check']);
 const PAINT_LIKE_TOOLS = new Set(['paint', 'highlighter', 'eraser']);
+const COLOURABLE_TYPES = new Set(['text', 'icon', 'line']);
 const HANDLE_SIZE = 8;
 const ROTATE_HANDLE_OFFSET = 30;
 const MAX_HISTORY = 50;
@@ -34,6 +35,12 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const pointsToSvgPath = (points) => {
   if (!points || points.length === 0) return '';
+  // MW - A single-point "dot" click has no line segment to stroke; add a
+  // tiny hop so it still renders once baked into a flattened path shape.
+  if (points.length === 1) {
+    const p = points[0];
+    return `M${p.x},${p.y} L${p.x + 0.01},${p.y + 0.01}`;
+  }
   let d = '';
   points.forEach((p, i) => {
     d += `${i === 0 || p.break ? 'M' : 'L'}${p.x},${p.y} `;
@@ -1896,8 +1903,7 @@ const SkiaIllustratorWeb = React.forwardRef(
 
     const onKeyDown = React.useCallback(
       (event) => {
-
-        // MW - If text editor modal is open return early so the hotkeys don't interfere with typing.
+        // MW - Modal open: don't let hotkeys interfere with typing.
         if (editor.visible) return;
 
         const isModifier = event.ctrlKey || event.metaKey;
@@ -2186,6 +2192,121 @@ const SkiaIllustratorWeb = React.forwardRef(
           setSelectedShapeId(null);
         },
         hasSelectedShape: () => stateRef.current.selectedShapeId != null,
+        getSelectedType: () => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          return selected?.type ?? null;
+        },
+        getSelectedPosition: () => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected) return null;
+          const b = getShapeBounds(selected);
+          return { x: b.x, y: b.y };
+        },
+        setSelectedPosition: ({ x, y } = {}) => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected || x == null || y == null) return;
+          const b = getShapeBounds(selected);
+          const dx = x - b.x;
+          const dy = y - b.y;
+          pushHistory();
+          setShapes(
+            current.shapes.map((shape) =>
+              shape.id === selected.id
+                ? { ...shape, x: shape.x + dx, y: shape.y + dy }
+                : shape
+            )
+          );
+        },
+        getSelectedSize: () => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected) return null;
+          const b = getShapeBounds(selected);
+          return { width: b.width, height: b.height };
+        },
+        setSelectedSize: ({ width, height } = {}) => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected || width == null || height == null) return;
+          const b = getShapeBounds(selected);
+          const nw = Math.max(1, width);
+          const nh = Math.max(1, height);
+          pushHistory();
+          let updated;
+          if (selected.type === 'circle') {
+            updated = {
+              ...selected,
+              x: b.x + nw / 2,
+              y: b.y + nh / 2,
+              radius: Math.min(nw, nh) / 2,
+            };
+          } else if (selected.type === 'text') {
+            const measured = measureWebText(selected.content ?? '', nh);
+            updated = {
+              ...selected,
+              x: b.x,
+              y: b.y + measured.height,
+              width: measured.width,
+              height: measured.height,
+              fontSize: nh,
+            };
+          } else {
+            updated = { ...selected, x: b.x, y: b.y, width: nw, height: nh };
+          }
+          setShapes(
+            current.shapes.map((shape) =>
+              shape.id === selected.id ? updated : shape
+            )
+          );
+        },
+        getColourOfSelected: () => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected || !COLOURABLE_TYPES.has(selected.type)) return null;
+          return selected.colour ?? null;
+        },
+        setColourForSelected: (colour) => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected || !COLOURABLE_TYPES.has(selected.type)) return;
+          pushHistory();
+          setShapes(
+            current.shapes.map((shape) =>
+              shape.id === selected.id ? { ...shape, colour } : shape
+            )
+          );
+        },
+        setTextForSelected: () => {
+          const current = stateRef.current;
+          const selected = current.shapes.find(
+            (shape) => shape.id === current.selectedShapeId
+          );
+          if (!selected || selected.type !== 'text') return;
+          setEditor({
+            visible: true,
+            mode: 'edit',
+            value: selected.content ?? '',
+            point: null,
+            shapeId: selected.id,
+          });
+        },
         duplicateSelectedShape: () => {
           const current = stateRef.current;
           const selected = current.shapes.find(
