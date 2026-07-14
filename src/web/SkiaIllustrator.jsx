@@ -14,6 +14,13 @@ const PAINT_LIKE_TOOLS = new Set(['paint', 'highlighter', 'eraser']);
 const HANDLE_SIZE = 8;
 const ROTATE_HANDLE_OFFSET = 30;
 const MAX_HISTORY = 50;
+const HANDLE_CURSORS = {
+  nw: 'nwse-resize',
+  se: 'nwse-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
+  rotate: 'grab',
+};
 
 const cloneShape = (shape) => ({ ...shape });
 const cloneLayer = (layer) => ({ ...layer });
@@ -116,10 +123,8 @@ const isNearPolyline = (point, points, radius) => {
   return false;
 };
 
-// MW - Destructively trims erased ink out of existing strokes instead of
-// storing the eraser stroke forever, which used to make exports/undo grow
-// without bound. Points within the eraser's radius are dropped; surviving
-// runs are kept as subpaths of the same stroke via the existing `break` flag.
+// MW - Trims erased ink out of existing strokes instead of storing eraser
+// strokes forever; survivors keep subpaths via the `break` flag.
 const eraseFromStrokes = (strokes, eraserStroke) => {
   const eraserPoints = eraserStroke.points ?? [];
   if (eraserPoints.length === 0 || strokes.length === 0) return strokes;
@@ -415,9 +420,8 @@ const drawShape = (ctx, shape) => {
       typeof window !== 'undefined' &&
       typeof window.Path2D !== 'undefined'
     ) {
-      // MW - Path segments are baked at absolute coordinates from the source
-      // pathBounds, so map them into the shape's live x/y/width/height (this
-      // lets the collapsed drawing be moved/resized like any other shape).
+      // MW - Path segments are baked at absolute coords; map them into the
+      // shape's live x/y/width/height so it can be moved/resized normally.
       const bounds = shape.pathBounds ?? {
         x: shape.x,
         y: shape.y,
@@ -818,7 +822,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       defaultSettings.shape ?? null
     );
     const [activeIconData, setActiveIconData] = React.useState(null);
-    const [defaultText, setDefaultText] = React.useState('New Text');
+    const [defaultText, setDefaultText] = React.useState('');
     const [transform, setTransform] = React.useState({ scale: 1, x: 0, y: 0 });
     const [shapes, setShapes] = React.useState([]);
     const [strokes, setStrokes] = React.useState([]);
@@ -1271,14 +1275,30 @@ const SkiaIllustratorWeb = React.forwardRef(
       ];
       orderedLayers.forEach((layer) => {
         if (layer.id === 'drawing') {
+          // MW - Rasterise at the current zoom/DPI instead of a fixed paper
+          // resolution, so live strokes stay as crisp as flattened shapes.
+          const bufferScale = dpr * transform.scale;
           const buffer = document.createElement('canvas');
-          buffer.width = Math.max(1, Math.ceil(resolvedCanvas.width));
-          buffer.height = Math.max(1, Math.ceil(resolvedCanvas.height));
+          buffer.width = Math.max(
+            1,
+            Math.ceil(resolvedCanvas.width * bufferScale)
+          );
+          buffer.height = Math.max(
+            1,
+            Math.ceil(resolvedCanvas.height * bufferScale)
+          );
           const bctx = buffer.getContext('2d');
+          bctx.scale(bufferScale, bufferScale);
           strokes.forEach((stroke) => drawStroke(bctx, stroke));
           const activeStroke = pointerRef.current?.activeStroke;
           if (activeStroke) drawStroke(bctx, activeStroke);
-          ctx.drawImage(buffer, 0, 0);
+          ctx.drawImage(
+            buffer,
+            0,
+            0,
+            resolvedCanvas.width,
+            resolvedCanvas.height
+          );
         } else {
           shapes
             .filter((shape) => getShapeLayer(shape) === layer.id)
@@ -1344,6 +1364,63 @@ const SkiaIllustratorWeb = React.forwardRef(
       return () => canvas.removeEventListener('wheel', handleWheel);
     }, []);
 
+    const eraseShapesInSegment = React.useCallback((points, thickness) => {
+      const current = stateRef.current;
+      if (!current.enableEraseShape || points.length === 0) return;
+      const radius = thickness / 2;
+      const xs = points.map((p) => p.x);
+      const ys = points.map((p) => p.y);
+      const box = {
+        minX: Math.min(...xs) - radius,
+        maxX: Math.max(...xs) + radius,
+        minY: Math.min(...ys) - radius,
+        maxY: Math.max(...ys) + radius,
+      };
+      const hitIds = current.shapes
+        .filter((shape) => {
+          const aabb = getShapeAABB(shape);
+          return (
+            aabb.x < box.maxX &&
+            aabb.x + aabb.width > box.minX &&
+            aabb.y < box.maxY &&
+            aabb.y + aabb.height > box.minY
+          );
+        })
+        .map((shape) => shape.id);
+      if (hitIds.length === 0) return;
+      setShapes((prev) => prev.filter((shape) => !hitIds.includes(shape.id)));
+      if (hitIds.includes(current.selectedShapeId)) setSelectedShapeId(null);
+    }, []);
+
+    // MW - Erases just the segment between two points so trimming tracks the
+    // eraser precisely as it moves, instead of the whole gesture at once.
+    const eraseSegment = React.useCallback(
+      (from, to, thickness) => {
+        const pointer = pointerRef.current;
+        if (pointer && !pointer.historyPushed) {
+          pushHistory();
+          pointer.historyPushed = true;
+        }
+        const points = from ? [from, to] : [to];
+        setStrokes((prev) => eraseFromStrokes(prev, { points, thickness }));
+        eraseShapesInSegment(points, thickness);
+      },
+      [pushHistory, eraseShapesInSegment]
+    );
+
+    const getHoverCursor = React.useCallback((point) => {
+      const current = stateRef.current;
+      const selected =
+        current.shapes.find((shape) => shape.id === current.selectedShapeId) ??
+        null;
+      const handle = selectionHandleAt(
+        selected,
+        point,
+        current.transform.scale
+      );
+      return HANDLE_CURSORS[handle] ?? 'crosshair';
+    }, []);
+
     const onPointerDown = React.useCallback(
       (event) => {
         if (!active) return;
@@ -1375,7 +1452,11 @@ const SkiaIllustratorWeb = React.forwardRef(
         );
         const hit = findTopShape(point);
 
-        if (event.detail === 2 && hit?.type === 'text') {
+        if (
+          event.detail === 2 &&
+          hit?.type === 'text' &&
+          current.currentTool !== 'shape'
+        ) {
           setSelectedShapeId(hit.id);
           setEditor({
             visible: true,
@@ -1408,32 +1489,31 @@ const SkiaIllustratorWeb = React.forwardRef(
         ) {
           const onPaper = isOnPaper(point);
           const isHighlighter = current.currentTool === 'highlighter';
+          const isEraser = current.currentTool === 'eraser';
           pointerRef.current = {
             mode: 'stroke',
             wasOnPaper: onPaper,
+            historyPushed: false,
             activeStroke: {
               points: onPaper ? [point] : [],
-              colour:
-                current.currentTool === 'eraser'
-                  ? 'black'
-                  : isHighlighter
-                    ? withHighlighterAlpha(current.currentHighlighterColour)
-                    : current.currentColour,
+              colour: isEraser
+                ? 'black'
+                : isHighlighter
+                  ? withHighlighterAlpha(current.currentHighlighterColour)
+                  : current.currentColour,
               thickness: current.brushSize,
-              isEraser: current.currentTool === 'eraser',
+              isEraser,
               isHighlighter,
             },
           };
+          if (isEraser && onPaper) eraseSegment(null, point, current.brushSize);
           renderCanvas();
           return;
         }
 
-        if (
-          current.currentTool === 'shape' &&
-          current.shapeToolType &&
-          !handle &&
-          !hit
-        ) {
+        // MW - Shape tool always creates a new shape; it never selects or
+        // moves ones already placed (that is what control mode is for).
+        if (current.currentTool === 'shape' && current.shapeToolType) {
           if (
             current.shapeToolType === 'line' &&
             pointerRef.current?.pendingLine
@@ -1460,6 +1540,7 @@ const SkiaIllustratorWeb = React.forwardRef(
             origin: getShapeOrigin(selected),
             startShape: cloneShape(selected),
           };
+          if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
           pushHistory();
           return;
         }
@@ -1471,6 +1552,8 @@ const SkiaIllustratorWeb = React.forwardRef(
             start: point,
             startShape: cloneShape(selected),
           };
+          if (canvasRef.current)
+            canvasRef.current.style.cursor = HANDLE_CURSORS[handle];
           pushHistory();
           return;
         }
@@ -1496,6 +1579,7 @@ const SkiaIllustratorWeb = React.forwardRef(
         active,
         addShapeAt,
         addTextAt,
+        eraseSegment,
         findTopShape,
         isOnPaper,
         pushHistory,
@@ -1507,8 +1591,12 @@ const SkiaIllustratorWeb = React.forwardRef(
     const onPointerMove = React.useCallback(
       (event) => {
         const pointer = pointerRef.current;
-        if (!pointer) return;
         const point = screenToCanvas(event.clientX, event.clientY);
+        if (!pointer) {
+          if (canvasRef.current)
+            canvasRef.current.style.cursor = getHoverCursor(point);
+          return;
+        }
         if (pointer.mode === 'stroke') {
           // MW - Only record on-paper samples. When the pointer leaves and
           // re-enters, mark the first sample back as a subpath break so no
@@ -1517,12 +1605,19 @@ const SkiaIllustratorWeb = React.forwardRef(
             pointer.wasOnPaper = false;
             return;
           }
+          const isContinuing =
+            pointer.wasOnPaper && pointer.activeStroke.points.length > 0;
+          const prevPoint = isContinuing
+            ? pointer.activeStroke.points[
+                pointer.activeStroke.points.length - 1
+              ]
+            : null;
           pointer.activeStroke.points.push(
-            pointer.wasOnPaper && pointer.activeStroke.points.length > 0
-              ? point
-              : { ...point, break: true }
+            isContinuing ? point : { ...point, break: true }
           );
           pointer.wasOnPaper = true;
+          if (pointer.activeStroke.isEraser)
+            eraseSegment(prevPoint, point, pointer.activeStroke.thickness);
           renderCanvas();
           return;
         }
@@ -1551,6 +1646,7 @@ const SkiaIllustratorWeb = React.forwardRef(
           return;
         }
         if (pointer.mode === 'rotate') {
+          if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
           const angle =
             (Math.atan2(
               point.y - pointer.origin.y,
@@ -1563,6 +1659,8 @@ const SkiaIllustratorWeb = React.forwardRef(
           return;
         }
         if (pointer.mode === 'resize') {
+          if (canvasRef.current)
+            canvasRef.current.style.cursor = HANDLE_CURSORS[pointer.handle];
           const shape = pointer.startShape;
           const local = rotatePoint(
             point,
@@ -1591,16 +1689,19 @@ const SkiaIllustratorWeb = React.forwardRef(
               y: ny + nh / 2,
               radius: Math.min(nw, nh) / 2,
             });
-          else if (shape.type === 'text')
+          else if (shape.type === 'text') {
+            // MW - Re-measure at the dragged font size so the box always
+            // matches the true rendered text size, with no size floor.
+            const measured = measureWebText(shape.content ?? '', nh);
             updateSelectedBounds({
               ...shape,
               x: nx,
-              y: ny + nh,
-              width: nw,
-              height: nh,
-              fontSize: Math.max(6, nh),
+              y: ny + measured.height,
+              width: measured.width,
+              height: measured.height,
+              fontSize: nh,
             });
-          else
+          } else
             updateSelectedBounds({
               ...shape,
               x: nx,
@@ -1610,64 +1711,37 @@ const SkiaIllustratorWeb = React.forwardRef(
             });
         }
       },
-      [isOnPaper, renderCanvas, screenToCanvas, updateSelectedBounds]
+      [
+        eraseSegment,
+        getHoverCursor,
+        isOnPaper,
+        renderCanvas,
+        screenToCanvas,
+        updateSelectedBounds,
+      ]
     );
 
     const onPointerUp = React.useCallback(
       (event) => {
         const pointer = pointerRef.current;
         if (!pointer) return;
-        const current = stateRef.current;
         const point = screenToCanvas(event.clientX, event.clientY);
         if (pointer.mode === 'stroke') {
           const stroke = pointer.activeStroke;
+          if (stroke.isEraser) {
+            // MW - Trimming already happened live per-segment during the drag.
+            pointerRef.current = null;
+            renderCanvas();
+            return;
+          }
           // MW - Gesture never touched the paper: nothing to commit.
           if (stroke.points.length === 0) {
             pointerRef.current = null;
             renderCanvas();
             return;
           }
-
           pushHistory();
-
-          if (stroke.isEraser) {
-            if (current.enableEraseShape) {
-              const xs = stroke.points.map((p) => p.x);
-              const ys = stroke.points.map((p) => p.y);
-              const box = {
-                x: Math.min(...xs) - stroke.thickness / 2,
-                y: Math.min(...ys) - stroke.thickness / 2,
-                width: Math.max(...xs) - Math.min(...xs) + stroke.thickness,
-                height: Math.max(...ys) - Math.min(...ys) + stroke.thickness,
-              };
-              const hitIds = [];
-              current.shapes.forEach((shape) => {
-                const aabb = getShapeAABB(shape);
-                if (
-                  aabb.x < box.x + box.width &&
-                  aabb.x + aabb.width > box.x &&
-                  aabb.y < box.y + box.height &&
-                  aabb.y + aabb.height > box.y
-                )
-                  hitIds.push(shape.id);
-              });
-              if (hitIds.length) {
-                setShapes(
-                  current.shapes.filter((shape) => !hitIds.includes(shape.id))
-                );
-                if (hitIds.includes(current.selectedShapeId))
-                  setSelectedShapeId(null);
-              }
-            }
-
-            // MW - Trim the erased ink out of existing strokes instead of
-            // storing the eraser stroke itself forever.
-            setStrokes(eraseFromStrokes(current.strokes, stroke));
-            pointerRef.current = null;
-            return;
-          }
-
-          setStrokes([...current.strokes, cloneStroke(stroke)]);
+          setStrokes((prev) => [...prev, cloneStroke(stroke)]);
           pointerRef.current = null;
           return;
         }
@@ -1685,11 +1759,16 @@ const SkiaIllustratorWeb = React.forwardRef(
           addShapeAt(pointer.type, pointer.start, moved ? point : null);
           return;
         }
+        if (
+          (pointer.mode === 'resize' || pointer.mode === 'rotate') &&
+          canvasRef.current
+        )
+          canvasRef.current.style.cursor = getHoverCursor(point);
         pointerRef.current = pointer.pendingLine
           ? { pendingLine: pointer.pendingLine }
           : null;
       },
-      [addShapeAt, pushHistory, renderCanvas, screenToCanvas]
+      [addShapeAt, getHoverCursor, pushHistory, renderCanvas, screenToCanvas]
     );
 
     const drawToContext = React.useCallback((ctx, width, height) => {
@@ -1931,7 +2010,7 @@ const SkiaIllustratorWeb = React.forwardRef(
           return;
         }
       },
-      [pushHistory, undo, redo, onSave]
+      [pushHistory, undo, redo, onSave, setCurrentTool]
     );
 
     React.useImperativeHandle(
@@ -2071,17 +2150,6 @@ const SkiaIllustratorWeb = React.forwardRef(
         },
         closeKeyboard: () => setEditor((prev) => ({ ...prev, visible: false })),
         deleteSelectedShape: () => {
-          const current = stateRef.current;
-          if (!current.selectedShapeId) return;
-          pushHistory();
-          setShapes(
-            current.shapes.filter(
-              (shape) => shape.id !== current.selectedShapeId
-            )
-          );
-          setSelectedShapeId(null);
-        },
-        deletedSelectedShape: () => {
           const current = stateRef.current;
           if (!current.selectedShapeId) return;
           pushHistory();
