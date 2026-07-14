@@ -125,6 +125,39 @@ const isNearPolyline = (point, points, radius) => {
 
 // MW - Trims erased ink out of existing strokes instead of storing eraser
 // strokes forever; survivors keep subpaths via the `break` flag.
+const ERASE_RESAMPLE_STEP = 2;
+
+// MW - Subdivides segments near the eraser so sparse points from a fast
+// stroke don't cause a whole gap to be removed at once.
+const densifyNearErase = (points, ebox) => {
+  if (points.length < 2) return points;
+  const dense = [points[0]];
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    if (!curr.break) {
+      const nearErase =
+        Math.min(prev.x, curr.x) <= ebox.maxX &&
+        Math.max(prev.x, curr.x) >= ebox.minX &&
+        Math.min(prev.y, curr.y) <= ebox.maxY &&
+        Math.max(prev.y, curr.y) >= ebox.minY;
+      if (nearErase) {
+        const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+        const steps = Math.floor(dist / ERASE_RESAMPLE_STEP);
+        for (let s = 1; s < steps; s += 1) {
+          const t = s / steps;
+          dense.push({
+            x: prev.x + (curr.x - prev.x) * t,
+            y: prev.y + (curr.y - prev.y) * t,
+          });
+        }
+      }
+    }
+    dense.push(curr);
+  }
+  return dense;
+};
+
 const eraseFromStrokes = (strokes, eraserStroke) => {
   const eraserPoints = eraserStroke.points ?? [];
   if (eraserPoints.length === 0 || strokes.length === 0) return strokes;
@@ -161,7 +194,7 @@ const eraseFromStrokes = (strokes, eraserStroke) => {
     const survivors = [];
     let removedAny = false;
     let pendingBreak = false;
-    for (const point of points) {
+    for (const point of densifyNearErase(points, ebox)) {
       if (isNearPolyline(point, eraserPoints, eraserRadius)) {
         removedAny = true;
         pendingBreak = true;
@@ -240,7 +273,9 @@ const getShapeOrigin = (shape) => {
 };
 
 const normalizeShape = (shape) => {
-  if (shape.type === 'circle') return shape;
+  // MW - Directional shapes (line/arrow/etc.) must keep their signed
+  // width/height; flipping them to positive mirrors the drawn direction.
+  if (shape.type === 'circle' || STROKE_TYPES.has(shape.type)) return shape;
   const w = shape.width ?? 0;
   const h = shape.height ?? 0;
   if (w >= 0 && h >= 0) return shape;
@@ -795,6 +830,9 @@ const SkiaIllustratorWeb = React.forwardRef(
     const redoRef = React.useRef([]);
     const clipboardRef = React.useRef(null);
     const stateRef = React.useRef(null);
+    // MW - Last known canvas-space pointer position, used to draw the brush
+    // size indicator for paint/highlighter without triggering a re-render.
+    const hoverPointRef = React.useRef(null);
 
     const [viewportSize, setViewportSize] = React.useState({
       width: defaultSettings.viewPortSize?.width ?? 800,
@@ -1314,6 +1352,33 @@ const SkiaIllustratorWeb = React.forwardRef(
         ctx.fill();
       }
 
+      // MW - Subtle brush-size preview outline that follows the cursor
+      // while the paint or highlighter tool is active.
+      const brushTool = stateRef.current.currentTool;
+      if (
+        (brushTool === 'paint' || brushTool === 'highlighter') &&
+        hoverPointRef.current
+      ) {
+        const p = hoverPointRef.current;
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle =
+          brushTool === 'highlighter'
+            ? stateRef.current.currentHighlighterColour
+            : stateRef.current.currentColour;
+        ctx.lineWidth = 1 / transform.scale;
+        ctx.beginPath();
+        ctx.arc(
+          p.x,
+          p.y,
+          Math.max(1, stateRef.current.brushSize / 2),
+          0,
+          Math.PI * 2
+        );
+        ctx.stroke();
+        ctx.restore();
+      }
+
       drawSelection(ctx, selectedShape, transform.scale);
       ctx.restore();
       ctx.restore();
@@ -1592,9 +1657,11 @@ const SkiaIllustratorWeb = React.forwardRef(
       (event) => {
         const pointer = pointerRef.current;
         const point = screenToCanvas(event.clientX, event.clientY);
+        hoverPointRef.current = point;
         if (!pointer) {
           if (canvasRef.current)
             canvasRef.current.style.cursor = getHoverCursor(point);
+          renderCanvas();
           return;
         }
         if (pointer.mode === 'stroke') {
@@ -1770,6 +1837,11 @@ const SkiaIllustratorWeb = React.forwardRef(
       },
       [addShapeAt, getHoverCursor, pushHistory, renderCanvas, screenToCanvas]
     );
+
+    const onPointerLeave = React.useCallback(() => {
+      hoverPointRef.current = null;
+      renderCanvas();
+    }, [renderCanvas]);
 
     const drawToContext = React.useCallback((ctx, width, height) => {
       ctx.clearRect(0, 0, width, height);
@@ -2356,6 +2428,7 @@ const SkiaIllustratorWeb = React.forwardRef(
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerLeave}
         />
         {!canvasReady && <div style={webStyles.loading}>Loading canvas…</div>}
         <TextEditor
