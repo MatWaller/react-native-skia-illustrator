@@ -662,7 +662,7 @@ const TextEditor = ({
             : (props?.createTitle ?? 'Add text')}
         </label>
         <textarea
-          autoFocus={props?.autoFocus !== false}
+          autoFocus={true}
           rows={props?.multiline === false ? 1 : 4}
           placeholder={props?.placeholder ?? 'Type something…'}
           value={value}
@@ -1896,6 +1896,10 @@ const SkiaIllustratorWeb = React.forwardRef(
 
     const onKeyDown = React.useCallback(
       (event) => {
+
+        // MW - If text editor modal is open return early so the hotkeys don't interfere with typing.
+        if (editor.visible) return;
+
         const isModifier = event.ctrlKey || event.metaKey;
         if (!isModifier) {
           if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -2021,8 +2025,17 @@ const SkiaIllustratorWeb = React.forwardRef(
           onSave?.();
           return;
         }
+
+        if (key === 'n') {
+          event.preventDefault();
+          pushHistory();
+          setShapes([]);
+          setStrokes([]);
+          setSelectedShapeId(null);
+          return;
+        }
       },
-      [pushHistory, undo, redo, onSave, setCurrentTool]
+      [pushHistory, undo, redo, onSave, setCurrentTool, editor.visible]
     );
 
     React.useImperativeHandle(
