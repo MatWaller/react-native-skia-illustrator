@@ -69,6 +69,9 @@ const buildGroupedPathShape = (strokes, layerId) => {
     });
   }
   if (pathSegments.length === 0) return null;
+  // MW - Nothing but eraser segments means there is no visible ink left,
+  // so don't create/select an invisible shape.
+  if (!pathSegments.some((segment) => !segment.isEraser)) return null;
   if (!Number.isFinite(minX)) {
     minX = 0;
     minY = 0;
@@ -103,118 +106,6 @@ const withHighlighterAlpha = (colour) =>
   colour && colour.length === 7 && colour.startsWith('#')
     ? `${colour}80`
     : colour;
-
-const distToSegment = (p, a, b) => {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lengthSq = dx * dx + dy * dy;
-  if (lengthSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
-  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq, 0, 1);
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-};
-
-const isNearPolyline = (point, points, radius) => {
-  if (points.length === 1)
-    return Math.hypot(point.x - points[0].x, point.y - points[0].y) <= radius;
-  for (let i = 1; i < points.length; i += 1) {
-    if (points[i].break) continue;
-    if (distToSegment(point, points[i - 1], points[i]) <= radius) return true;
-  }
-  return false;
-};
-
-// MW - Trims erased ink out of existing strokes instead of storing eraser
-// strokes forever; survivors keep subpaths via the `break` flag.
-const ERASE_RESAMPLE_STEP = 2;
-
-// MW - Subdivides segments near the eraser so sparse points from a fast
-// stroke don't cause a whole gap to be removed at once.
-const densifyNearErase = (points, ebox) => {
-  if (points.length < 2) return points;
-  const dense = [points[0]];
-  for (let i = 1; i < points.length; i += 1) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    if (!curr.break) {
-      const nearErase =
-        Math.min(prev.x, curr.x) <= ebox.maxX &&
-        Math.max(prev.x, curr.x) >= ebox.minX &&
-        Math.min(prev.y, curr.y) <= ebox.maxY &&
-        Math.max(prev.y, curr.y) >= ebox.minY;
-      if (nearErase) {
-        const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
-        const steps = Math.floor(dist / ERASE_RESAMPLE_STEP);
-        for (let s = 1; s < steps; s += 1) {
-          const t = s / steps;
-          dense.push({
-            x: prev.x + (curr.x - prev.x) * t,
-            y: prev.y + (curr.y - prev.y) * t,
-          });
-        }
-      }
-    }
-    dense.push(curr);
-  }
-  return dense;
-};
-
-const eraseFromStrokes = (strokes, eraserStroke) => {
-  const eraserPoints = eraserStroke.points ?? [];
-  if (eraserPoints.length === 0 || strokes.length === 0) return strokes;
-  const eraserRadius = (eraserStroke.thickness ?? 8) / 2;
-  const exs = eraserPoints.map((p) => p.x);
-  const eys = eraserPoints.map((p) => p.y);
-  const ebox = {
-    minX: Math.min(...exs) - eraserRadius,
-    maxX: Math.max(...exs) + eraserRadius,
-    minY: Math.min(...eys) - eraserRadius,
-    maxY: Math.max(...eys) + eraserRadius,
-  };
-
-  let changed = false;
-  const next = [];
-  for (const stroke of strokes) {
-    const points = stroke.points ?? [];
-    if (points.length === 0 || stroke.isEraser) {
-      next.push(stroke);
-      continue;
-    }
-    const xs = points.map((p) => p.x);
-    const ys = points.map((p) => p.y);
-    const overlaps =
-      Math.min(...xs) <= ebox.maxX &&
-      Math.max(...xs) >= ebox.minX &&
-      Math.min(...ys) <= ebox.maxY &&
-      Math.max(...ys) >= ebox.minY;
-    if (!overlaps) {
-      next.push(stroke);
-      continue;
-    }
-
-    const survivors = [];
-    let removedAny = false;
-    let pendingBreak = false;
-    for (const point of densifyNearErase(points, ebox)) {
-      if (isNearPolyline(point, eraserPoints, eraserRadius)) {
-        removedAny = true;
-        pendingBreak = true;
-        continue;
-      }
-      survivors.push(
-        pendingBreak && !point.break ? { ...point, break: true } : point
-      );
-      pendingBreak = false;
-    }
-
-    if (!removedAny) {
-      next.push(stroke);
-      continue;
-    }
-    changed = true;
-    if (survivors.length > 0) next.push({ ...stroke, points: survivors });
-  }
-  return changed ? next : strokes;
-};
 
 const isBrowser = () =>
   typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -1353,10 +1244,12 @@ const SkiaIllustratorWeb = React.forwardRef(
       }
 
       // MW - Subtle brush-size preview outline that follows the cursor
-      // while the paint or highlighter tool is active.
+      // while the paint, highlighter or eraser tool is active.
       const brushTool = stateRef.current.currentTool;
       if (
-        (brushTool === 'paint' || brushTool === 'highlighter') &&
+        (brushTool === 'paint' ||
+          brushTool === 'highlighter' ||
+          brushTool === 'eraser') &&
         hoverPointRef.current
       ) {
         const p = hoverPointRef.current;
@@ -1365,7 +1258,9 @@ const SkiaIllustratorWeb = React.forwardRef(
         ctx.strokeStyle =
           brushTool === 'highlighter'
             ? stateRef.current.currentHighlighterColour
-            : stateRef.current.currentColour;
+            : brushTool === 'eraser'
+              ? '#334155'
+              : stateRef.current.currentColour;
         ctx.lineWidth = 1 / transform.scale;
         ctx.beginPath();
         ctx.arc(
@@ -1457,8 +1352,9 @@ const SkiaIllustratorWeb = React.forwardRef(
       if (hitIds.includes(current.selectedShapeId)) setSelectedShapeId(null);
     }, []);
 
-    // MW - Erases just the segment between two points so trimming tracks the
-    // eraser precisely as it moves, instead of the whole gesture at once.
+    // MW - Erases placed shapes under the segment as the eraser moves; the
+    // eraser's own ink is committed as a normal destination-out stroke on
+    // pointer-up so the live preview always matches the final result.
     const eraseSegment = React.useCallback(
       (from, to, thickness) => {
         const pointer = pointerRef.current;
@@ -1467,7 +1363,6 @@ const SkiaIllustratorWeb = React.forwardRef(
           pointer.historyPushed = true;
         }
         const points = from ? [from, to] : [to];
-        setStrokes((prev) => eraseFromStrokes(prev, { points, thickness }));
         eraseShapesInSegment(points, thickness);
       },
       [pushHistory, eraseShapesInSegment]
@@ -1795,19 +1690,15 @@ const SkiaIllustratorWeb = React.forwardRef(
         const point = screenToCanvas(event.clientX, event.clientY);
         if (pointer.mode === 'stroke') {
           const stroke = pointer.activeStroke;
-          if (stroke.isEraser) {
-            // MW - Trimming already happened live per-segment during the drag.
-            pointerRef.current = null;
-            renderCanvas();
-            return;
-          }
           // MW - Gesture never touched the paper: nothing to commit.
           if (stroke.points.length === 0) {
             pointerRef.current = null;
             renderCanvas();
             return;
           }
-          pushHistory();
+          // MW - Commit exactly what was drawn live (including erasers) so
+          // the result never differs from the active-drag preview.
+          if (!pointer.historyPushed) pushHistory();
           setStrokes((prev) => [...prev, cloneStroke(stroke)]);
           pointerRef.current = null;
           return;
