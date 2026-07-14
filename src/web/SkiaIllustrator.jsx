@@ -2037,7 +2037,7 @@ const SkiaIllustratorWeb = React.forwardRef(
           return;
         }
 
-        if (key === 'n') {
+        if (key === 'backspace') {
           event.preventDefault();
           pushHistory();
           setShapes([]);
