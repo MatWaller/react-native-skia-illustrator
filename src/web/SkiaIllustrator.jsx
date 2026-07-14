@@ -402,6 +402,24 @@ const drawShape = (ctx, shape) => {
   ctx.restore();
 };
 
+// MW - A flattened path with any eraser segment must never draw straight
+// onto the main canvas: its destination-out would punch through the paper
+// and everything already drawn beneath it, not just its own ink.
+const shapeHasEraserSegments = (shape) =>
+  shape.type === 'path' &&
+  Array.isArray(shape.pathSegments) &&
+  shape.pathSegments.some((segment) => segment.isEraser);
+
+const drawShapeIsolated = (ctx, shape, width, height, bufferScale) => {
+  const buffer = document.createElement('canvas');
+  buffer.width = Math.max(1, Math.ceil(width * bufferScale));
+  buffer.height = Math.max(1, Math.ceil(height * bufferScale));
+  const bctx = buffer.getContext('2d');
+  bctx.scale(bufferScale, bufferScale);
+  drawShape(bctx, shape);
+  ctx.drawImage(buffer, 0, 0, width, height);
+};
+
 const drawGrid = (ctx, width, height) => {
   const minor = 10;
   const major = 50;
@@ -1231,7 +1249,17 @@ const SkiaIllustratorWeb = React.forwardRef(
         } else {
           shapes
             .filter((shape) => getShapeLayer(shape) === layer.id)
-            .forEach((shape) => drawShape(ctx, shape));
+            .forEach((shape) => {
+              if (shapeHasEraserSegments(shape))
+                drawShapeIsolated(
+                  ctx,
+                  shape,
+                  resolvedCanvas.width,
+                  resolvedCanvas.height,
+                  dpr * transform.scale
+                );
+              else drawShape(ctx, shape);
+            });
         }
       });
 
@@ -1699,7 +1727,15 @@ const SkiaIllustratorWeb = React.forwardRef(
           // MW - Commit exactly what was drawn live (including erasers) so
           // the result never differs from the active-drag preview.
           if (!pointer.historyPushed) pushHistory();
-          setStrokes((prev) => [...prev, cloneStroke(stroke)]);
+          const committed = cloneStroke(stroke);
+          // MW - Patch stateRef synchronously so an imperative call right
+          // after (e.g. a tool switch that flattens) never reads a stale
+          // strokes array missing the one we just committed.
+          stateRef.current = {
+            ...stateRef.current,
+            strokes: [...stateRef.current.strokes, committed],
+          };
+          setStrokes((prev) => [...prev, committed]);
           pointerRef.current = null;
           return;
         }
@@ -1746,12 +1782,25 @@ const SkiaIllustratorWeb = React.forwardRef(
         ...drawingLayers.filter((layer) => layer.id === 'drawing'),
       ];
       orderedLayers.forEach((layer) => {
-        if (layer.id === 'drawing')
-          stateRef.current.strokes.forEach((stroke) => drawStroke(ctx, stroke));
-        else
+        if (layer.id === 'drawing') {
+          // MW - Isolate so any eraser ink only cuts into this buffer's
+          // own strokes, not the paper already drawn on the export canvas.
+          const buffer = document.createElement('canvas');
+          buffer.width = Math.max(1, Math.ceil(width));
+          buffer.height = Math.max(1, Math.ceil(height));
+          const bctx = buffer.getContext('2d');
+          stateRef.current.strokes.forEach((stroke) =>
+            drawStroke(bctx, stroke)
+          );
+          ctx.drawImage(buffer, 0, 0, width, height);
+        } else
           stateRef.current.shapes
             .filter((shape) => getShapeLayer(shape) === layer.id)
-            .forEach((shape) => drawShape(ctx, shape));
+            .forEach((shape) => {
+              if (shapeHasEraserSegments(shape))
+                drawShapeIsolated(ctx, shape, width, height, 1);
+              else drawShape(ctx, shape);
+            });
       });
     }, []);
 
