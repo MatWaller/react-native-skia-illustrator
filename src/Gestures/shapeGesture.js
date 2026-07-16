@@ -20,6 +20,7 @@ export const createShapeGestures = ({
   selectedShapeRotation,
   activeStrokeColour,
   activeStrokeThickness,
+  activeLineThickness,
   shapes,
   onSelectedShapeChange,
   addShape,
@@ -129,7 +130,7 @@ export const createShapeGestures = ({
           y: a.y,
           width: x - a.x,
           height: y - a.y,
-          thickness: activeStrokeThickness.value,
+          thickness: activeLineThickness.value,
           colour: activeStrokeColour.value,
           rotation: 0,
         };
@@ -220,7 +221,7 @@ export const createShapeGestures = ({
             y,
             width: size,
             height: 0,
-            thickness: activeStrokeThickness.value,
+            thickness: activeLineThickness.value,
             colour,
             rotation: 0,
           };
@@ -425,7 +426,7 @@ export const createShapeGestures = ({
           y: a.y,
           width: 0,
           height: 0,
-          thickness: activeStrokeThickness.value,
+          thickness: activeLineThickness.value,
           colour,
           rotation: 0,
         };

@@ -33,6 +33,7 @@ export const useImperativeApi = ({
   setCurrentColour,
   setCurrentHighlighterColour,
   setBrushSizeState,
+  setLineThicknessState,
   setFontSizeState,
   setShapeToolType,
   setActiveIconData,
@@ -145,22 +146,22 @@ export const useImperativeApi = ({
         const selected = current.shapes.find(
           (shape) => shape.id === current.selectedShapeId
         );
-        if (!selected || selected.type === 'text') return;
+        // MW - A line's stroke width has its own control (setLineThickness);
+        // text size has its own (setFontSize). The brush slider skips both.
+        if (!selected || selected.type === 'text' || selected.type === 'line')
+          return;
         pushHistory();
         const newSize = size * 5;
         const updated =
           selected.type === 'circle'
             ? { ...selected, radius: newSize / 2 }
-            : selected.type === 'line'
-              ? { ...selected, thickness: size }
-              : {
-                  ...selected,
-                  width: newSize,
-                  height:
-                    newSize *
-                    ((selected.height ?? newSize) /
-                      (selected.width || newSize)),
-                };
+            : {
+                ...selected,
+                width: newSize,
+                height:
+                  newSize *
+                  ((selected.height ?? newSize) / (selected.width || newSize)),
+              };
         setShapes(
           current.shapes.map((shape) =>
             shape.id === selected.id ? updated : shape
@@ -168,6 +169,23 @@ export const useImperativeApi = ({
         );
       },
       getCurrentBrushSize: () => stateRef.current.brushSize,
+      // MW - A line's stroke thickness is its own control, decoupled from the
+      // paint brush size (a line isn't a freehand stroke).
+      setLineThickness: (thickness) => {
+        setLineThicknessState(thickness);
+        const current = stateRef.current;
+        const selected = current.shapes.find(
+          (shape) => shape.id === current.selectedShapeId
+        );
+        if (!selected || selected.type !== 'line') return;
+        pushHistory();
+        setShapes(
+          current.shapes.map((shape) =>
+            shape.id === selected.id ? { ...shape, thickness } : shape
+          )
+        );
+      },
+      getCurrentLineThickness: () => stateRef.current.lineThickness,
       saveCanvasAsImage,
       serializeCanvas,
       loadCanvas,

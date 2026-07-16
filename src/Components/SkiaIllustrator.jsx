@@ -69,6 +69,28 @@ import {
 
 const COLOURABLE_TYPES = new Set(['text', 'icon', 'line']);
 
+// MW - A line's selection box is a thin rectangle (length x thickness)
+// hugging the stroke, rotated by its vector angle + any applied rotation,
+// rather than the diagonal's much larger axis-aligned box. Shared by
+// addShape/finalizeShapeCreation/setLineThickness (plain JS, not worklets).
+const getLineSelectionBounds = (shape) => {
+  const w = shape.width ?? 0;
+  const h = shape.height ?? 0;
+  const length = Math.hypot(w, h);
+  const thickness = shape.thickness ?? 8;
+  return {
+    x: shape.x + w / 2 - length / 2,
+    y: shape.y + h / 2 - thickness / 2,
+    width: length,
+    height: thickness,
+  };
+};
+const getLineAngleDeg = (shape) => {
+  const w = shape.width ?? 0;
+  const h = shape.height ?? 0;
+  return (Math.atan2(h, w) * 180) / Math.PI + (shape.rotation ?? 0);
+};
+
 const safeDispose = (obj) => {
   try {
     if (obj && typeof obj.dispose === 'function') {
@@ -169,6 +191,7 @@ const SkiaIllustrator = React.forwardRef(
         tool: 'paint',
         shape: 'line',
         brushSize: 8,
+        lineThickness: 4,
         fontSize: 32,
         brushColour: 'black',
         highlighterColour: 'yellow',
@@ -511,6 +534,11 @@ const SkiaIllustrator = React.forwardRef(
 
     // MW - Stroke Settings
     const activeStrokeThickness = useSharedValue(defaultSettings.brushSize);
+    // MW - Line thickness is its own control, decoupled from the paint
+    // brush size (a line isn't a freehand stroke).
+    const activeLineThickness = useSharedValue(
+      defaultSettings.lineThickness ?? 4
+    );
     const activeStrokePath = useSharedValue('');
     const activeStrokeColour = useSharedValue(defaultSettings.brushColour);
     const activeHighlighterColour = useSharedValue(
@@ -1094,12 +1122,32 @@ const SkiaIllustrator = React.forwardRef(
           layeredShape,
         ]);
 
+        // MW - Re-affirm the selection now that the shape is fully committed
+        // (id is unchanged, so this is a no-op unless something raced it).
+        if (layeredShape.type === 'line') {
+          selectedShapeId.value = layeredShape.id;
+          selectedShapeBounds.value = getLineSelectionBounds(layeredShape);
+          selectedShapeRotation.value = getLineAngleDeg(layeredShape);
+          notifyChange(selectedShapeId);
+          notifyChange(selectedShapeBounds);
+          notifyChange(selectedShapeRotation);
+          notifySelectedShapeChange(layeredShape.id);
+        }
+
         // MW - When a shape is placed, we switch to the control tool so the user can immediately manipulate it.
         // This is purely a UX Decision if you would like to stay within the shape tool after placing a shape you can remove this line.
         // :)
         setCurrentTool('control');
       },
-      [pushHistory, buildSnapshot, shapes, selectedShapeBounds]
+      [
+        pushHistory,
+        buildSnapshot,
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        notifySelectedShapeChange,
+      ]
     );
 
     // MW - Drag-to-create: mount a shape that already exists in shapes.value
@@ -1211,9 +1259,28 @@ const SkiaIllustrator = React.forwardRef(
           notifyChange(shapes);
         }
         setShapeList(shapes.value.map((s) => ({ ...s })));
+
+        // MW - Re-affirm the selection now that the shape is fully committed
+        // (id is unchanged, so this is a no-op unless something raced it).
+        if (shape.type === 'line') {
+          selectedShapeId.value = shape.id;
+          selectedShapeBounds.value = getLineSelectionBounds(shape);
+          selectedShapeRotation.value = getLineAngleDeg(shape);
+          notifyChange(selectedShapeId);
+          notifyChange(selectedShapeBounds);
+          notifyChange(selectedShapeRotation);
+          notifySelectedShapeChange(shape.id);
+        }
+
         setCurrentTool('control');
       },
-      [shapes, selectedShapeBounds]
+      [
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        selectedShapeRotation,
+        notifySelectedShapeChange,
+      ]
     );
 
     const { controlPanGesture, controlPinchGesture, controlRotateGesture } =
@@ -1296,6 +1363,7 @@ const SkiaIllustrator = React.forwardRef(
           canvasHeight: resolvedCanvas.height,
           activeStrokeColour,
           activeStrokeThickness,
+          activeLineThickness,
           selectedShapeId,
           selectedShapeStart,
           selectedShapeBounds,
@@ -1322,6 +1390,7 @@ const SkiaIllustrator = React.forwardRef(
         resolvedCanvas.height,
         activeStrokeColour,
         activeStrokeThickness,
+        activeLineThickness,
         selectedShapeId,
         selectedShapeStart,
         selectedShapeBounds,
@@ -1569,7 +1638,11 @@ const SkiaIllustrator = React.forwardRef(
       }
       const w = selectedShapeBounds.value?.width ?? 0;
       if (w === 0) return 0;
-      if (shape?.type === 'icon' || shape?.type === 'text') {
+      if (
+        shape?.type === 'icon' ||
+        shape?.type === 'text' ||
+        shape?.type === 'line'
+      ) {
         return w + SELECTION_OFFSET * 2;
       }
       return Math.min(w, maxSelectionWidth) + SELECTION_OFFSET * 2;
@@ -1696,8 +1769,9 @@ const SkiaIllustrator = React.forwardRef(
         if (shapeIndex === -1) return;
 
         const shape = shapes.value[shapeIndex];
-        // MW - Text size is handled by setFontSize, not the brush slider.
-        if (shape.type === 'text') return;
+        // MW - Text size is handled by setFontSize, and a line's stroke
+        // width by setLineThickness — the brush slider doesn't touch either.
+        if (shape.type === 'text' || shape.type === 'line') return;
 
         pushHistory(buildSnapshot(shapes.value));
 
@@ -1708,10 +1782,6 @@ const SkiaIllustrator = React.forwardRef(
         let updatedShape;
         if (shape.type === 'circle') {
           updatedShape = { ...shape, radius: newSize / 2 };
-        } else if (shape.type === 'line') {
-          // MW - The brush slider sets a line's stroke thickness directly;
-          // its length is unaffected (that's controlled by drag/pinch).
-          updatedShape = { ...shape, thickness: size };
         } else {
           // MW - Scale width/height proportionally to preserve the shape's aspect ratio.
           const aspect = shape.width > 0 ? shape.height / shape.width : 1;
@@ -1736,17 +1806,6 @@ const SkiaIllustrator = React.forwardRef(
             width: updatedShape.radius * 2,
             height: updatedShape.radius * 2,
           };
-        } else if (updatedShape.type === 'line') {
-          const w = updatedShape.width ?? 0;
-          const h = updatedShape.height ?? 0;
-          const length = Math.hypot(w, h);
-          const thickness = updatedShape.thickness ?? 8;
-          selectedShapeBounds.value = {
-            x: updatedShape.x + w / 2 - length / 2,
-            y: updatedShape.y + h / 2 - thickness / 2,
-            width: length,
-            height: thickness,
-          };
         } else {
           selectedShapeBounds.value = {
             x: updatedShape.x,
@@ -1759,6 +1818,43 @@ const SkiaIllustrator = React.forwardRef(
       },
       [
         activeStrokeThickness,
+        shapes,
+        selectedShapeId,
+        selectedShapeBounds,
+        pushHistory,
+        buildSnapshot,
+      ]
+    );
+
+    // MW - A line's stroke thickness is its own control (not tied to the
+    // paint brush size, since a line isn't a freehand stroke).
+    const setLineThickness = React.useCallback(
+      (thickness) => {
+        activeLineThickness.value = thickness;
+
+        const shapeId = selectedShapeId.value;
+        if (!shapeId) return;
+
+        const shapeIndex = shapes.value.findIndex((s) => s.id === shapeId);
+        if (shapeIndex === -1) return;
+
+        const shape = shapes.value[shapeIndex];
+        if (shape.type !== 'line') return;
+
+        pushHistory(buildSnapshot(shapes.value));
+
+        const updatedShape = { ...shape, thickness };
+        const updatedShapes = [...shapes.value];
+        updatedShapes[shapeIndex] = updatedShape;
+        shapes.value = updatedShapes;
+        setShapeList(updatedShapes);
+        notifyChange(shapes);
+
+        selectedShapeBounds.value = getLineSelectionBounds(updatedShape);
+        notifyChange(selectedShapeBounds);
+      },
+      [
+        activeLineThickness,
         shapes,
         selectedShapeId,
         selectedShapeBounds,
@@ -2558,6 +2654,8 @@ const SkiaIllustrator = React.forwardRef(
         getCurrentHighlighterColour: () => currentHighlighterColour,
         setBrushSize,
         getCurrentBrushSize: () => activeStrokeThickness.value,
+        setLineThickness,
+        getCurrentLineThickness: () => activeLineThickness.value,
         convertAllStrokesToShape,
         saveCanvasAsImage,
         serializeCanvas,
@@ -2854,6 +2952,7 @@ const SkiaIllustrator = React.forwardRef(
         setColour,
         setHighlighterColour,
         setBrushSize,
+        setLineThickness,
         setFontSize,
         convertAllStrokesToShape,
         saveCanvasAsImage,
@@ -2864,6 +2963,7 @@ const SkiaIllustrator = React.forwardRef(
         clearSelection,
         closeKeyboard,
         activeStrokeThickness,
+        activeLineThickness,
         activeFontSize,
         activeIconAspect,
         shapeToolType,

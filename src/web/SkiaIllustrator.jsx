@@ -34,6 +34,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       defaultSettings = {
         tool: 'pen',
         brushSize: 8,
+        lineThickness: 4,
         fontSize: 32,
         brushColour: 'black',
         highlighterColour: 'yellow',
@@ -74,6 +75,11 @@ const SkiaIllustratorWeb = React.forwardRef(
     const [brushSize, setBrushSizeState] = React.useState(
       defaultSettings.brushSize
     );
+    // MW - A line's stroke thickness is its own control, decoupled from the
+    // paint brush size (a line isn't a freehand stroke).
+    const [lineThickness, setLineThicknessState] = React.useState(
+      defaultSettings.lineThickness ?? 4
+    );
     const [fontSize, setFontSizeState] = React.useState(
       defaultSettings.fontSize
     );
@@ -102,6 +108,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       currentColour,
       currentHighlighterColour,
       brushSize,
+      lineThickness,
       fontSize,
       shapeToolType,
       activeIconData,
@@ -244,7 +251,7 @@ const SkiaIllustratorWeb = React.forwardRef(
             colour: current.currentColour,
             rotation: 0,
             layer: current.activeLayerId,
-            ...(type === 'line' ? { thickness: current.brushSize } : null),
+            ...(type === 'line' ? { thickness: current.lineThickness } : null),
           };
         }
         pushHistory();
@@ -339,6 +346,7 @@ const SkiaIllustratorWeb = React.forwardRef(
       setCurrentColour,
       setCurrentHighlighterColour,
       setBrushSizeState,
+      setLineThicknessState,
       setFontSizeState,
       setShapeToolType,
       setActiveIconData,

@@ -166,9 +166,9 @@ Then on the canvas:
 
 The **line** tool additionally supports **two-tap** placement: tap once to drop
 the start point (a marker appears), tap again to set the end point. A drag also
-works and overrides the pending tap. A line's stroke thickness follows the
-active brush size (`setBrushSize`); pinching a selected line changes its
-length without affecting its thickness.
+works and overrides the pending tap. A line's stroke thickness has its own
+control, `setLineThickness` (not the paint brush size); pinching a selected
+line changes its length without affecting its thickness.
 
 **Icons** are placed the same way (tap or drag) and always retain their original
 aspect ratio so they're never distorted:
@@ -271,7 +271,8 @@ Available `textModalProps`:
 | --- | --- |
 | `setCurrentTool(tool)` / `getCurrentTool()` | Get/set the active tool. |
 | `setColour(colour)` / `getCurrentColour()` | Set the paint colour (also recolours the selected shape). |
-| `setBrushSize(size)` / `getCurrentBrushSize()` | Brush thickness (also resizes the selected shape). |
+| `setBrushSize(size)` / `getCurrentBrushSize()` | Brush thickness (also resizes the selected shape, excluding lines/text). |
+| `setLineThickness(thickness)` / `getCurrentLineThickness()` | Stroke thickness for new lines (also updates the selected line). |
 | `setPathToShape(enabled)` / `getPathToShape()` | Commit paint strokes as custom path shapes instead of drawing-layer strokes. |
 | `setFontSize(size)` / `getCurrentFontSize()` | Text size (also resizes selected text). |
 | `setShape(type)` / `getCurrentShape()` | Choose the shape type to place. |
