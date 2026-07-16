@@ -22,6 +22,8 @@ export const createPaintGestures = ({
 }) => {
   const lastX = makeMutable(0);
   const lastY = makeMutable(0);
+  const startX = makeMutable(0);
+  const startY = makeMutable(0);
   const startPressure = makeMutable(1);
   const lastPressure = makeMutable(1);
   const isStylusInput = makeMutable(false);
@@ -53,7 +55,8 @@ export const createPaintGestures = ({
     .enabled(
       currentTool === 'paint' ||
         currentTool === 'eraser' ||
-        currentTool === 'highlighter'
+        currentTool === 'highlighter' ||
+        currentTool === 'paint-straight'
     )
     .minDistance(0)
     .maxPointers(1)
@@ -69,6 +72,8 @@ export const createPaintGestures = ({
       activeStrokePath.value = `M${pt.x},${pt.y}`;
       lastX.value = pt.x;
       lastY.value = pt.y;
+      startX.value = pt.x;
+      startY.value = pt.y;
       wasOnCanvas.value = true;
 
       startPressure.value = getPressure(event);
@@ -82,6 +87,21 @@ export const createPaintGestures = ({
       const dx = x - lastX.value;
       const dy = y - lastY.value;
       if (dx * dx + dy * dy < MIN_SAMPLE_DISTANCE * MIN_SAMPLE_DISTANCE) {
+        return;
+      }
+
+      // MW - paint-straight acts just like paint but always redraws a single
+      // segment from the press point to the finger, so the committed stroke
+      // ends up perfectly straight (same flattening/commit logic as paint).
+      if (currentTool === 'paint-straight') {
+        activeStrokePath.value = `M${startX.value},${startY.value} L${x},${y}`;
+        lastX.value = x;
+        lastY.value = y;
+        lastPressure.value = getPressure(event);
+        if (getIsStylusInput(event)) {
+          isStylusInput.value = true;
+        }
+        notifyChange(activeStrokePath);
         return;
       }
 
@@ -138,7 +158,10 @@ export const createPaintGestures = ({
       if (!completedPath) return;
       // MW - Nothing was drawn on the paper (gesture stayed off-canvas):
       // discard instead of committing an empty stroke + history entry.
-      if (!completedPath.trim() || !completedPath.includes('Q')) {
+      if (
+        !completedPath.trim() ||
+        (!completedPath.includes('Q') && !completedPath.includes('L'))
+      ) {
         activeStrokePath.value = '';
         notifyChange(activeStrokePath);
         return;

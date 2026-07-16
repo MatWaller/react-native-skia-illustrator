@@ -120,28 +120,26 @@ export const createControlGestures = ({
 
   const hitTestLine = (shape, px, py, padding = 0) => {
     'worklet';
+    // MW - Test against a tight rectangle (length x thickness) aligned with
+    // the line's own direction, rather than the much larger axis-aligned box
+    // wrapping its diagonal.
     const w = shape.width ?? 0;
     const h = shape.height ?? 0;
-    // MW - Lines can be drawn in any direction (signed width/height), so
-    // normalise to a min/max box before hit-testing.
-    const minX = Math.min(shape.x, shape.x + w);
-    const maxX = Math.max(shape.x, shape.x + w);
-    const minY = Math.min(shape.y, shape.y + h);
-    const maxY = Math.max(shape.y, shape.y + h);
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const rot = ((shape.rotation ?? 0) * Math.PI) / 180;
-    const cosA = Math.cos(-rot);
-    const sinA = Math.sin(-rot);
+    const length = Math.hypot(w, h);
+    const thickness = shape.thickness ?? 8;
+    const cx = shape.x + w / 2;
+    const cy = shape.y + h / 2;
+    const angle = Math.atan2(h, w) + ((shape.rotation ?? 0) * Math.PI) / 180;
+    const cosA = Math.cos(-angle);
+    const sinA = Math.sin(-angle);
     const tx = px - cx;
     const ty = py - cy;
-    const rx = tx * cosA - ty * sinA + cx;
-    const ry = tx * sinA + ty * cosA + cy;
+    const rx = tx * cosA - ty * sinA;
+    const ry = tx * sinA + ty * cosA;
+    const halfLen = length / 2 + padding;
+    const halfThick = thickness / 2 + padding;
     return (
-      rx >= minX - padding &&
-      rx <= maxX + padding &&
-      ry >= minY - padding &&
-      ry <= maxY + padding
+      rx >= -halfLen && rx <= halfLen && ry >= -halfThick && ry <= halfThick
     );
   };
 
@@ -221,16 +219,30 @@ export const createControlGestures = ({
       return { x: shape.x, y: shape.y - h, width: shape.width ?? 0, height: h };
     }
     if (shape.type === 'line') {
+      // MW - A thin rectangle (length x thickness) hugging the stroke rather
+      // than the diagonal's axis-aligned box, which balloons out square-ish
+      // for angled lines. Rotate the outline by getLineAngleDeg to match.
       const w = shape.width ?? 0;
       const h = shape.height ?? 0;
+      const length = Math.hypot(w, h);
+      const thickness = shape.thickness ?? 8;
       return {
-        x: Math.min(shape.x, shape.x + w),
-        y: Math.min(shape.y, shape.y + h),
-        width: Math.abs(w),
-        height: Math.abs(h),
+        x: shape.x + w / 2 - length / 2,
+        y: shape.y + h / 2 - thickness / 2,
+        width: length,
+        height: thickness,
       };
     }
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+  };
+
+  // MW - Effective visual angle of a line: its drawn vector direction plus
+  // any rotation applied on top via the two-finger rotate gesture.
+  const getLineAngleDeg = (shape) => {
+    'worklet';
+    const w = shape.width ?? 0;
+    const h = shape.height ?? 0;
+    return (Math.atan2(h, w) * 180) / Math.PI + (shape.rotation ?? 0);
   };
 
   const isPanningViewport = makeMutable(false);
@@ -261,7 +273,11 @@ export const createControlGestures = ({
         selectedShapeStart.value = { x: hitShape.x, y: hitShape.y };
         selectedShapeBounds.value = getShapeBounds(hitShape);
         selectedShapeRotation.value =
-          hitShape.type === 'circle' ? 0 : hitShape.rotation || 0;
+          hitShape.type === 'circle'
+            ? 0
+            : hitShape.type === 'line'
+              ? getLineAngleDeg(hitShape)
+              : hitShape.rotation || 0;
       }
 
       if (hitId) {
@@ -403,6 +419,18 @@ export const createControlGestures = ({
                 shape.height = newFontSize;
                 selectedShapeBounds.value = getShapeBounds(shape);
               }
+            } else if (shape.type === 'line') {
+              // MW - Pinch scales the line's length only; thickness only
+              // changes via the brush-size slider, not this gesture.
+              const w0 = pinchStartDimensions.value.width;
+              const h0 = pinchStartDimensions.value.height;
+              const length0 = Math.hypot(w0, h0);
+              if (length0 > 0) {
+                const newLength = length0 * event.scale;
+                shape.width = (w0 / length0) * newLength;
+                shape.height = (h0 / length0) * newLength;
+                selectedShapeBounds.value = getShapeBounds(shape);
+              }
             } else {
               const newWidth = pinchStartDimensions.value.width * event.scale;
               const newHeight = pinchStartDimensions.value.height * event.scale;
@@ -493,7 +521,10 @@ export const createControlGestures = ({
       for (let i = 0; i < currentShapes.length; i++) {
         if (currentShapes[i].id === selectedShapeId.value) {
           currentShapes[i].rotation = nextRotation;
-          selectedShapeRotation.value = nextRotation;
+          selectedShapeRotation.value =
+            currentShapes[i].type === 'line'
+              ? getLineAngleDeg(currentShapes[i])
+              : nextRotation;
           break;
         }
       }

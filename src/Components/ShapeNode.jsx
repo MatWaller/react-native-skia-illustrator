@@ -322,7 +322,13 @@ export const ShapeNode = ({ shapeID, shapes, shapeSnapshot }) => {
   if (shapeType === 'line') {
     return (
       <Group origin={origin} transform={transform}>
-        <Path path={linePath} color={colour} style="stroke" strokeWidth={2} />
+        <Path
+          path={linePath}
+          color={colour}
+          style="stroke"
+          strokeWidth={thickness}
+          strokeCap="round"
+        />
       </Group>
     );
   }

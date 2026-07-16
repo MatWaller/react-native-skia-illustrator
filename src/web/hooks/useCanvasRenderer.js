@@ -140,6 +140,7 @@ export const useCanvasRenderer = ({
     const brushTool = stateRef.current.currentTool;
     if (
       (brushTool === 'paint' ||
+        brushTool === 'paint-straight' ||
         brushTool === 'highlighter' ||
         brushTool === 'eraser') &&
       hoverPointRef.current

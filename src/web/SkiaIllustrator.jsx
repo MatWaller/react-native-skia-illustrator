@@ -244,6 +244,7 @@ const SkiaIllustratorWeb = React.forwardRef(
             colour: current.currentColour,
             rotation: 0,
             layer: current.activeLayerId,
+            ...(type === 'line' ? { thickness: current.brushSize } : null),
           };
         }
         pushHistory();

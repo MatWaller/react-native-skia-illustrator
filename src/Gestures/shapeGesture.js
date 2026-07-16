@@ -74,16 +74,30 @@ export const createShapeGestures = ({
       return { x: shape.x, y: shape.y - h, width: shape.width ?? 0, height: h };
     }
     if (shape.type === 'line') {
+      // MW - A thin rectangle (length x thickness) hugging the stroke rather
+      // than the diagonal's axis-aligned box, which balloons out square-ish
+      // for angled lines. Rotate the outline by getLineAngleDeg to match.
       const w = shape.width ?? 0;
       const h = shape.height ?? 0;
+      const length = Math.hypot(w, h);
+      const thickness = shape.thickness ?? 8;
       return {
-        x: Math.min(shape.x, shape.x + w),
-        y: Math.min(shape.y, shape.y + h),
-        width: Math.abs(w),
-        height: Math.abs(h),
+        x: shape.x + w / 2 - length / 2,
+        y: shape.y + h / 2 - thickness / 2,
+        width: length,
+        height: thickness,
       };
     }
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+  };
+
+  // MW - Effective visual angle of a line: its drawn vector direction plus
+  // any rotation applied on top via the two-finger rotate gesture.
+  const getLineAngleDeg = (shape) => {
+    'worklet';
+    const w = shape.width ?? 0;
+    const h = shape.height ?? 0;
+    return (Math.atan2(h, w) * 180) / Math.PI + (shape.rotation ?? 0);
   };
 
   const canPlaceShape = currentTool === 'shape' || currentTool === 'icon';
@@ -115,6 +129,7 @@ export const createShapeGestures = ({
           y: a.y,
           width: x - a.x,
           height: y - a.y,
+          thickness: activeStrokeThickness.value,
           colour: activeStrokeColour.value,
           rotation: 0,
         };
@@ -130,7 +145,7 @@ export const createShapeGestures = ({
         selectedShapeId.value = lineShape.id;
         selectedShapeStart.value = { x: lineShape.x, y: lineShape.y };
         selectedShapeBounds.value = getShapeBounds(lineShape);
-        selectedShapeRotation.value = 0;
+        selectedShapeRotation.value = getLineAngleDeg(lineShape);
         notifyChange(selectedShapeId);
         notifyChange(selectedShapeBounds);
         notifyChange(selectedShapeRotation);
@@ -205,6 +220,7 @@ export const createShapeGestures = ({
             y,
             width: size,
             height: 0,
+            thickness: activeStrokeThickness.value,
             colour,
             rotation: 0,
           };
@@ -319,7 +335,10 @@ export const createShapeGestures = ({
       selectedShapeStart.value = { x: newShape.x, y: newShape.y };
       selectedShapeBounds.value = getShapeBounds(newShape);
 
-      selectedShapeRotation.value = newShape.rotation || 0;
+      selectedShapeRotation.value =
+        newShape.type === 'line'
+          ? getLineAngleDeg(newShape)
+          : newShape.rotation || 0;
       notifyChange(selectedShapeId);
       notifyChange(selectedShapeBounds);
       notifyChange(selectedShapeRotation);
@@ -406,6 +425,7 @@ export const createShapeGestures = ({
           y: a.y,
           width: 0,
           height: 0,
+          thickness: activeStrokeThickness.value,
           colour,
           rotation: 0,
         };
@@ -489,6 +509,8 @@ export const createShapeGestures = ({
           s.y = a.y;
           s.width = b.x - a.x;
           s.height = b.y - a.y;
+          selectedShapeRotation.value = getLineAngleDeg(s);
+          notifyChange(selectedShapeRotation);
         } else if (s.type === 'icon') {
           // MW - Size the icon to the dragged box while preserving its aspect
           // ratio (height / width). The anchor corner stays put and the icon

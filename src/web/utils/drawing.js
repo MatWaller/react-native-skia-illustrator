@@ -59,7 +59,7 @@ export const drawShape = (ctx, shape) => {
   ctx.save();
   ctx.fillStyle = colour;
   ctx.strokeStyle = colour;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = shape.type === 'line' ? (shape.thickness ?? 2) : 2;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 

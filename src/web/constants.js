@@ -8,7 +8,12 @@ export const DEFAULT_LAYERS = [
 ];
 
 export const STROKE_TYPES = new Set(['line', 'arrow', 'cross', 'check']);
-export const PAINT_LIKE_TOOLS = new Set(['paint', 'highlighter', 'eraser']);
+export const PAINT_LIKE_TOOLS = new Set([
+  'paint',
+  'paint-straight',
+  'highlighter',
+  'eraser',
+]);
 export const COLOURABLE_TYPES = new Set(['text', 'icon', 'line']);
 export const HANDLE_SIZE = 8;
 export const ROTATE_HANDLE_OFFSET = 30;

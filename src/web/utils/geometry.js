@@ -233,7 +233,7 @@ export const shapeToStroke = (shape) => {
   return {
     points: commands,
     colour: shape.colour ?? 'black',
-    thickness: 2,
+    thickness: shape.type === 'line' ? (shape.thickness ?? 2) : 2,
     isFilled: !STROKE_TYPES.has(shape.type),
   };
 };

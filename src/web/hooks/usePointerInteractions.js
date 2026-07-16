@@ -180,18 +180,26 @@ export const usePointerInteractions = ({
 
       if (
         current.currentTool === 'paint' ||
+        current.currentTool === 'paint-straight' ||
         current.currentTool === 'eraser' ||
         current.currentTool === 'highlighter'
       ) {
         const onPaper = isOnPaper(point);
         const isHighlighter = current.currentTool === 'highlighter';
         const isEraser = current.currentTool === 'eraser';
+        const isStraight = current.currentTool === 'paint-straight';
         pointerRef.current = {
           mode: 'stroke',
           wasOnPaper: onPaper,
           historyPushed: false,
+          isStraight,
+          start: onPaper ? point : null,
           activeStroke: {
             points: onPaper ? [point] : [],
+            pathSvg:
+              isStraight && onPaper
+                ? `M${point.x},${point.y} L${point.x},${point.y}`
+                : undefined,
             colour: isEraser
               ? 'black'
               : isHighlighter
@@ -306,6 +314,17 @@ export const usePointerInteractions = ({
         // line is drawn across the off-paper gap.
         if (!isOnPaper(point)) {
           pointer.wasOnPaper = false;
+          return;
+        }
+        if (pointer.isStraight) {
+          // MW - paint-straight always redraws a single segment from the
+          // press point to the pointer, flattening exactly like a straight
+          // line rather than following the freehand path.
+          if (!pointer.start) pointer.start = point;
+          pointer.activeStroke.pathSvg = `M${pointer.start.x},${pointer.start.y} L${point.x},${point.y}`;
+          pointer.activeStroke.points = [pointer.start, point];
+          pointer.wasOnPaper = true;
+          renderCanvas();
           return;
         }
         const isContinuing =

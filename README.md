@@ -145,6 +145,7 @@ Set the active tool with `ref.current.setCurrentTool(tool)`:
 | `control` / `move` | Drag empty canvas to pan, pinch to zoom (smooth focal-point zoom), drag a shape to move it, pinch/rotate a selected shape. |
 | `selection` | Tap to select; drag to move; pinch to resize; rotate with two fingers. |
 | `paint` | Freehand drawing with the active colour and brush size. |
+| `paint-straight` | Same as `paint`, but the stroke is flattened to a straight line from the press point to release. |
 | `eraser` | Erase paint strokes; dragging over a shape, icon or text deletes it. |
 | `shape` | With a shape/icon selected: place by **tap** (default size) or **drag** (size in real time). With none selected, drag pans the canvas. |
 | `text` | Tap to place text — a themeable modal opens to enter the content. |
@@ -165,7 +166,9 @@ Then on the canvas:
 
 The **line** tool additionally supports **two-tap** placement: tap once to drop
 the start point (a marker appears), tap again to set the end point. A drag also
-works and overrides the pending tap.
+works and overrides the pending tap. A line's stroke thickness follows the
+active brush size (`setBrushSize`); pinching a selected line changes its
+length without affecting its thickness.
 
 **Icons** are placed the same way (tap or drag) and always retain their original
 aspect ratio so they're never distorted:

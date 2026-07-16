@@ -330,13 +330,17 @@ const SkiaIllustrator = React.forwardRef(
             height: h,
           };
         } else if (shape.type === 'line') {
+          // MW - Thin rectangle (length x thickness) aligned with the line
+          // instead of the diagonal's axis-aligned box.
           const w = shape.width ?? 0;
           const h = shape.height ?? 0;
+          const length = Math.hypot(w, h);
+          const thickness = shape.thickness ?? 8;
           bounds = {
-            x: Math.min(shape.x, shape.x + w),
-            y: Math.min(shape.y, shape.y + h),
-            width: Math.abs(w),
-            height: Math.abs(h),
+            x: shape.x + w / 2 - length / 2,
+            y: shape.y + h / 2 - thickness / 2,
+            width: length,
+            height: thickness,
           };
         } else {
           bounds = {
@@ -409,7 +413,11 @@ const SkiaIllustrator = React.forwardRef(
     }, []);
 
     const isPaintLikeTool = React.useCallback(
-      (tool) => tool === 'paint' || tool === 'highlighter' || tool === 'eraser',
+      (tool) =>
+        tool === 'paint' ||
+        tool === 'paint-straight' ||
+        tool === 'highlighter' ||
+        tool === 'eraser',
       []
     );
 
@@ -1400,11 +1408,13 @@ const SkiaIllustrator = React.forwardRef(
       } else if (duplicate.type === 'line') {
         const w = duplicate.width ?? 0;
         const h = duplicate.height ?? 0;
+        const length = Math.hypot(w, h);
+        const thickness = duplicate.thickness ?? 8;
         bounds = {
-          x: Math.min(duplicate.x, duplicate.x + w),
-          y: Math.min(duplicate.y, duplicate.y + h),
-          width: Math.abs(w),
-          height: Math.abs(h),
+          x: duplicate.x + w / 2 - length / 2,
+          y: duplicate.y + h / 2 - thickness / 2,
+          width: length,
+          height: thickness,
         };
       } else {
         bounds = {
@@ -1418,7 +1428,12 @@ const SkiaIllustrator = React.forwardRef(
       selectedShapeId.value = duplicate.id;
       selectedShapeStart.value = { x: duplicate.x, y: duplicate.y };
       selectedShapeBounds.value = bounds;
-      selectedShapeRotation.value = duplicate.rotation ?? 0;
+      selectedShapeRotation.value =
+        duplicate.type === 'line'
+          ? (Math.atan2(duplicate.height ?? 0, duplicate.width ?? 0) * 180) /
+              Math.PI +
+            (duplicate.rotation ?? 0)
+          : (duplicate.rotation ?? 0);
       notifyChange(shapes);
       notifyChange(selectedShapeId);
       notifyChange(selectedShapeStart);
@@ -1502,6 +1517,7 @@ const SkiaIllustrator = React.forwardRef(
             doubleTapTextGesture
           );
         case 'paint':
+        case 'paint-straight':
         case 'eraser':
         case 'highlighter':
           return paintGesture;
@@ -1692,6 +1708,10 @@ const SkiaIllustrator = React.forwardRef(
         let updatedShape;
         if (shape.type === 'circle') {
           updatedShape = { ...shape, radius: newSize / 2 };
+        } else if (shape.type === 'line') {
+          // MW - The brush slider sets a line's stroke thickness directly;
+          // its length is unaffected (that's controlled by drag/pinch).
+          updatedShape = { ...shape, thickness: size };
         } else {
           // MW - Scale width/height proportionally to preserve the shape's aspect ratio.
           const aspect = shape.width > 0 ? shape.height / shape.width : 1;
@@ -1715,6 +1735,17 @@ const SkiaIllustrator = React.forwardRef(
             y: updatedShape.y - updatedShape.radius,
             width: updatedShape.radius * 2,
             height: updatedShape.radius * 2,
+          };
+        } else if (updatedShape.type === 'line') {
+          const w = updatedShape.width ?? 0;
+          const h = updatedShape.height ?? 0;
+          const length = Math.hypot(w, h);
+          const thickness = updatedShape.thickness ?? 8;
+          selectedShapeBounds.value = {
+            x: updatedShape.x + w / 2 - length / 2,
+            y: updatedShape.y + h / 2 - thickness / 2,
+            width: length,
+            height: thickness,
           };
         } else {
           selectedShapeBounds.value = {
@@ -2430,7 +2461,9 @@ const SkiaIllustrator = React.forwardRef(
               try {
                 if (strokeStyleTypes.includes(type)) {
                   paint.setStyle(PaintStyle.Stroke);
-                  paint.setStrokeWidth(2);
+                  paint.setStrokeWidth(
+                    type === 'line' ? (shape.thickness ?? 8) : 2
+                  );
                   paint.setStrokeCap(StrokeCap.Round);
                   paint.setStrokeJoin(StrokeJoin.Round);
                 } else {
@@ -2988,6 +3021,7 @@ const SkiaIllustrator = React.forwardRef(
                       )}
                     </Group>
                     {(currentTool === 'paint' ||
+                      currentTool === 'paint-straight' ||
                       currentTool === 'highlighter' ||
                       currentTool === 'eraser') && (
                       <Path

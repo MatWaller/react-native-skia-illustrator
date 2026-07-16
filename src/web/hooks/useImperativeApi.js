@@ -151,13 +151,16 @@ export const useImperativeApi = ({
         const updated =
           selected.type === 'circle'
             ? { ...selected, radius: newSize / 2 }
-            : {
-                ...selected,
-                width: newSize,
-                height:
-                  newSize *
-                  ((selected.height ?? newSize) / (selected.width || newSize)),
-              };
+            : selected.type === 'line'
+              ? { ...selected, thickness: size }
+              : {
+                  ...selected,
+                  width: newSize,
+                  height:
+                    newSize *
+                    ((selected.height ?? newSize) /
+                      (selected.width || newSize)),
+                };
         setShapes(
           current.shapes.map((shape) =>
             shape.id === selected.id ? updated : shape
