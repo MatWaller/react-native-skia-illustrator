@@ -836,7 +836,6 @@ const SkiaIllustrator = React.forwardRef(
         );
         if (!pathShape) return;
 
-        pushHistory(buildSnapshot(shapes.value));
         const next = [...shapes.value, pathShape];
         shapes.value = next;
         setShapeList(next);
@@ -867,9 +866,7 @@ const SkiaIllustrator = React.forwardRef(
         activeStrokePath,
         allStrokesRef,
         buildGroupedPathShape,
-        buildSnapshot,
         notifySelectedShapeChange,
-        pushHistory,
         selectedShapeBounds,
         selectedShapeId,
         selectedShapeRotation,
