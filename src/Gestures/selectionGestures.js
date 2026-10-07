@@ -231,6 +231,10 @@ export const createSelectionGestures = ({
   // apply the cumulative gesture delta to a fixed baseline.
   const rotationStart = makeMutable(0);
 
+  const panHistoryPushed = makeMutable(false);
+  const pinchHistoryPushed = makeMutable(false);
+  const rotateHistoryPushed = makeMutable(false);
+
   const pinchResizeGesture = Gesture.Pinch()
     .onBegin(() => {
       'worklet';
@@ -249,11 +253,7 @@ export const createSelectionGestures = ({
             radius: shape.radius ?? 0,
             fontSize: shape.fontSize ?? 0,
           };
-          if (onBeforeShapeMutation) {
-            runOnJS(onBeforeShapeMutation)(
-              currentShapes.map((s) => ({ ...s }))
-            );
-          }
+          pinchHistoryPushed.value = false;
           break;
         }
       }
@@ -261,6 +261,13 @@ export const createSelectionGestures = ({
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
+
+      if (!pinchHistoryPushed.value) {
+        pinchHistoryPushed.value = true;
+        if (onBeforeShapeMutation) {
+          runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+        }
+      }
 
       const currentShapes = shapes.value;
 
@@ -325,7 +332,11 @@ export const createSelectionGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      if (selectedShapeId.value && onAfterShapeMutation) {
+      if (
+        selectedShapeId.value &&
+        pinchHistoryPushed.value &&
+        onAfterShapeMutation
+      ) {
         runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
       }
     });
@@ -380,9 +391,7 @@ export const createSelectionGestures = ({
       edgePanY.value = 0;
 
       selectedShapeId.value = hitId;
-      if (hitId && onBeforeShapeMutation) {
-        runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
-      }
+      panHistoryPushed.value = false;
       if (onSelectedShapeChange) {
         runOnJS(onSelectedShapeChange)(hitId);
       }
@@ -390,6 +399,13 @@ export const createSelectionGestures = ({
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
+
+      if (!panHistoryPushed.value) {
+        panHistoryPushed.value = true;
+        if (onBeforeShapeMutation) {
+          runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+        }
+      }
 
       dragLastTransX.value = event.translationX;
       dragLastTransY.value = event.translationY;
@@ -419,7 +435,11 @@ export const createSelectionGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      if (selectedShapeId.value && onAfterShapeMutation) {
+      if (
+        selectedShapeId.value &&
+        panHistoryPushed.value &&
+        onAfterShapeMutation
+      ) {
         runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
       }
       draggingShape.value = false;
@@ -438,13 +458,18 @@ export const createSelectionGestures = ({
           break;
         }
       }
-      if (onBeforeShapeMutation) {
-        runOnJS(onBeforeShapeMutation)(cs.map((s) => ({ ...s })));
-      }
+      rotateHistoryPushed.value = false;
     })
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
+
+      if (!rotateHistoryPushed.value) {
+        rotateHistoryPushed.value = true;
+        if (onBeforeShapeMutation) {
+          runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+        }
+      }
 
       // MW - event.rotation is the cumulative angle in RADIANS since the
       // gesture began. Convert to degrees and add to the captured start angle
@@ -475,7 +500,11 @@ export const createSelectionGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      if (selectedShapeId.value && onAfterShapeMutation) {
+      if (
+        selectedShapeId.value &&
+        rotateHistoryPushed.value &&
+        onAfterShapeMutation
+      ) {
         runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
       }
     });

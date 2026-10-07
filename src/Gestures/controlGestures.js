@@ -258,6 +258,10 @@ export const createControlGestures = ({
   const prevFocalX = makeMutable(0);
   const prevFocalY = makeMutable(0);
 
+  const panHistoryPushed = makeMutable(false);
+  const pinchHistoryPushed = makeMutable(false);
+  const rotateHistoryPushed = makeMutable(false);
+
   const controlPanGesture = Gesture.Pan()
     .minDistance(0)
     .maxPointers(1)
@@ -300,9 +304,7 @@ export const createControlGestures = ({
       edgePanY.value = 0;
 
       selectedShapeId.value = hitId;
-      if (hitId && onBeforeShapeMutation) {
-        runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
-      }
+      panHistoryPushed.value = false;
       if (onSelectedShapeChange) {
         runOnJS(onSelectedShapeChange)(hitId);
       }
@@ -310,6 +312,12 @@ export const createControlGestures = ({
     .onUpdate((event) => {
       'worklet';
       if (selectedShapeId.value) {
+        if (!panHistoryPushed.value) {
+          panHistoryPushed.value = true;
+          if (onBeforeShapeMutation) {
+            runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+          }
+        }
         // Shape drag
         dragLastTransX.value = event.translationX;
         dragLastTransY.value = event.translationY;
@@ -350,7 +358,11 @@ export const createControlGestures = ({
       if (isPanningViewport.value) {
         savedTranslateX.value = translateX.value;
         savedTranslateY.value = translateY.value;
-      } else if (selectedShapeId.value && onAfterShapeMutation) {
+      } else if (
+        selectedShapeId.value &&
+        panHistoryPushed.value &&
+        onAfterShapeMutation
+      ) {
         runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
       }
       isPanningViewport.value = false;
@@ -375,11 +387,7 @@ export const createControlGestures = ({
               radius: shape.radius ?? 0,
               fontSize: shape.fontSize ?? 0,
             };
-            if (onBeforeShapeMutation) {
-              runOnJS(onBeforeShapeMutation)(
-                currentShapes.map((s) => ({ ...s }))
-              );
-            }
+            pinchHistoryPushed.value = false;
             return;
           }
         }
@@ -397,6 +405,12 @@ export const createControlGestures = ({
       'worklet';
       if (selectedShapeId.value != null) {
         // MW - Resize the selected shape; do not zoom/pan the viewport.
+        if (!pinchHistoryPushed.value) {
+          pinchHistoryPushed.value = true;
+          if (onBeforeShapeMutation) {
+            runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+          }
+        }
         const currentShapes = shapes.value;
         for (let i = 0; i < currentShapes.length; i++) {
           if (currentShapes[i].id === selectedShapeId.value) {
@@ -481,7 +495,7 @@ export const createControlGestures = ({
     .onEnd(() => {
       'worklet';
       if (selectedShapeId.value != null) {
-        if (onAfterShapeMutation) {
+        if (pinchHistoryPushed.value && onAfterShapeMutation) {
           runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
         }
         return;
@@ -503,13 +517,17 @@ export const createControlGestures = ({
           break;
         }
       }
-      if (onBeforeShapeMutation) {
-        runOnJS(onBeforeShapeMutation)(cs.map((s) => ({ ...s })));
-      }
+      rotateHistoryPushed.value = false;
     })
     .onUpdate((event) => {
       'worklet';
       if (!selectedShapeId.value) return;
+      if (!rotateHistoryPushed.value) {
+        rotateHistoryPushed.value = true;
+        if (onBeforeShapeMutation) {
+          runOnJS(onBeforeShapeMutation)(shapes.value.map((s) => ({ ...s })));
+        }
+      }
       // MW - event.rotation is the cumulative angle in RADIANS since the
       // gesture began. Convert to degrees and add to the start rotation so the
       // shape tracks the fingers 1:1 instead of compounding every frame (the
@@ -535,7 +553,11 @@ export const createControlGestures = ({
     })
     .onEnd(() => {
       'worklet';
-      if (selectedShapeId.value && onAfterShapeMutation) {
+      if (
+        selectedShapeId.value &&
+        rotateHistoryPushed.value &&
+        onAfterShapeMutation
+      ) {
         runOnJS(onAfterShapeMutation)(shapes.value.map((s) => ({ ...s })));
       }
     });
